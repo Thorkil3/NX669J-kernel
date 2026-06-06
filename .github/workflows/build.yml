@@ -36,11 +36,15 @@ jobs:
           fi
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
-          # 2. العودة للمجلد الرئيسي الآمن لتفادي خطأ دليل العمل المحذوف
+          # 2. العودة للمجلد الرئيسي
           cd $GITHUB_WORKSPACE
 
-          # 3. سحب مستودع الـ Linker الرسمي المتوافق مع كيرنال مسم 5.4 (نسخة أندرويد 9/10 المستقرة)
+          # 3. سحب مستودع الـ GCC Linker المساعد
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
+
+          # 4. حل مشكلة Link not found عبر إنشاء روابط برمجية مباشرة داخل مجلد المترجم
+          ln -sf $GITHUB_WORKSPACE/clang/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
+          ln -sf $GITHUB_WORKSPACE/clang/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
 
       - name: Integrate KernelSU Manually
         run: |
@@ -72,13 +76,19 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ربط المسارات بشكل صحيح متضمناً الـ GCC المضاف والـ Clang
+          # ربط كل المسارات البرمجية المجهزة بالكامل في بيئة العمل السحابية
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           export CC=clang
           export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export STRIP=llvm-strip
           
           make O=out lahaina_defconfig
           make -j$(nproc) O=out
