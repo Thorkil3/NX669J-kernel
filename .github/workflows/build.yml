@@ -40,14 +40,20 @@ jobs:
           cd $GITHUB_WORKSPACE
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
 
-      - name: Force Absolute Symlinks everywhere
+      - name: Force Linker Injection (The Ultimate Fix)
         run: |
-          GCC_LD="$GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld"
-          if [ -f "$GCC_LD" ]; then
-            ln -sf "$GCC_LD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
-            ln -sf "$GCC_LD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
-            sudo ln -sf "$GCC_LD" /usr/bin/aarch64-linux-android-ld
-            sudo ln -sf "$GCC_LD" /usr/bin/aarch64-linux-gnu-ld
+          # أخذ الـ ld.lld المضمون من الكلانج وزرعه كبديل للأداة المفقودة بالاسم المطلوب
+          CLANG_LLD="$GITHUB_WORKSPACE/clang/bin/ld.lld"
+          
+          if [ -f "$CLANG_LLD" ]; then
+            ln -sf "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
+            ln -sf "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
+            
+            ln -sf "$CLANG_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld
+            ln -sf "$CLANG_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-gnu-ld
+            
+            sudo ln -sf "$CLANG_LLD" /usr/bin/aarch64-linux-android-ld
+            sudo ln -sf "$CLANG_LLD" /usr/bin/aarch64-linux-gnu-ld
           fi
 
       - name: Integrate KernelSU Manually
@@ -82,8 +88,8 @@ jobs:
           
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          make O=out lahaina_defconfig ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
-          make -j$(nproc) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
+          make -j$(nproc) O=out ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
