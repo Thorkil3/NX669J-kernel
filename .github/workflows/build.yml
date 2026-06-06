@@ -23,14 +23,18 @@ jobs:
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
-      - name: Download Clang Compiler (Fixed Curl)
+      - name: Fetch Clang Compiler via Git (Safe Method)
         run: |
+          # سحب المترجم كملفات مفتوحة مباشرة لتفادي مشاكل الحجب وفك الضغط
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
+          
+          # إنشاء مجلد الـ clang القياسي وربطه بالنسخة المطلوبة
           mkdir -p $GITHUB_WORKSPACE/clang
-          cd $GITHUB_WORKSPACE/clang
-          # استخدام خيارات إضافية مع curl لضمان تحميل الملف كاملاً وتتبع التحويلات الأمنية
-          curl -k -L -O "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r418222b.tar.gz"
-          tar -zxf clang-r418222b.tar.gz
-          rm -f clang-r418222b.tar.gz
+          # سحب نسخة clang-r418222b المطلوبة من داخل المستودع المستقر
+          cd $GITHUB_WORKSPACE/clang-prebuilt
+          git checkout FETCH_HEAD
+          mv clang-r418222b/* $GITHUB_WORKSPACE/clang/  mv clang-stable/* $GITHUB_WORKSPACE/clang/  true
+          rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
       - name: Integrate KernelSU Manually
         run: |
