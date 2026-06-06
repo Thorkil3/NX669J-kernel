@@ -42,18 +42,19 @@ jobs:
 
       - name: Force Linker Injection (The Ultimate Fix)
         run: |
-          # أخذ الـ ld.lld المضمون من الكلانج وزرعه كبديل للأداة المفقودة بالاسم المطلوب
           CLANG_LLD="$GITHUB_WORKSPACE/clang/bin/ld.lld"
           
           if [ -f "$CLANG_LLD" ]; then
+            # إنشاء الروابط لـ ld.lld في كل مكان في النظام والمجلدات المساعدة لضمان القراءة الشاملة
+            sudo ln -sf "$CLANG_LLD" /usr/bin/ld.lld
+            sudo ln -sf "$CLANG_LLD" /usr/bin/aarch64-linux-android-ld
+            sudo ln -sf "$CLANG_LLD" /usr/bin/aarch64-linux-gnu-ld
+            
             ln -sf "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
             ln -sf "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
             
             ln -sf "$CLANG_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld
             ln -sf "$CLANG_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-gnu-ld
-            
-            sudo ln -sf "$CLANG_LLD" /usr/bin/aarch64-linux-android-ld
-            sudo ln -sf "$CLANG_LLD" /usr/bin/aarch64-linux-gnu-ld
           fi
 
       - name: Integrate KernelSU Manually
@@ -86,12 +87,12 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
+          # حقن المسارات في البيئة الحالية مباشرة قبل التنفيذ
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
-          make -j$(nproc) O=out ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
-
-      - name: Upload Build Artifacts
+          # البناء مع تمرير الـ PATH الصارم والـ Linker الموحد
+          make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu- PATH=$PATH
+          make -j$(nproc) O=out ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu- PATH=$PATH- name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Kernel_Image_with_KernelSU
