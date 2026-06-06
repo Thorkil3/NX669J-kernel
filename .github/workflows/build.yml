@@ -23,14 +23,10 @@ jobs:
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
-      - name: Download Clang Compiler (GitHub Mirror)
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/clang
-          cd $GITHUB_WORKSPACE/clang
-          # سحب نسخة مترجم Clang 12 المستقرة والمخصصة لبناء كيرنال أندرويد 11 من مستودع جيتهاب موثوق لتخطي حماية خوادم جوجل
-          curl -L https://github.com/ZyCromerZ/Clang/releases/download/12.0.1-20210312-release/Clang-12.0.1-20210312.tar.gz -o clang.tar.gz
-          tar -xf clang.tar.gz
-          rm -f clang.tar.gz
+      - name: Setup Clang Compiler (Official Action)
+        uses: egm16/setup-clang@v1
+        with:
+          version: '12' # النسخة المستقرة والمتوافقة جداً مع كيرنال أندرويد 11 لجهازك
 
       - name: Integrate KernelSU Manually
         run: |
@@ -62,8 +58,6 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # تعديل مسارات المترجم لتتوافق مع المجلد الجديد المستخرج
-          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
