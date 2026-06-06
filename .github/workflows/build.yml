@@ -21,8 +21,7 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt update
-          # إضافة الحزمة الرسمية binutils لتوفير الـ Linker الكلاسيكي المتوافق مع الكود مباشرة
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev binutils-aarch64-linux-gnu
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
       - name: Fetch Clang and GCC Toolchains via Git
         run: |
@@ -37,11 +36,18 @@ jobs:
           fi
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
-          # 2. العودة للمجلد الرئيسي
+          # 2. العودة للمجلد الرئيسي وسحب مستودع الـ GCC المساعد
           cd $GITHUB_WORKSPACE
-
-          # 3. سحب مستودع الـ GCC المساعد المستقر
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
+
+      - name: Create Absolute Symlinks for Linker
+        run: |
+          # دمج وتوفير روابط مباشرة للأدوات بالأسماء التي يطلبها الـ Kconfig تجنباً لخطأ not found
+          cd $GITHUB_WORKSPACE/clang/bin
+          if [ -f "$GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld" ]; then
+            ln -sf $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld aarch64-linux-android-ld
+            ln -sf $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld aarch64-linux-gnu-ld
+          fi
 
       - name: Integrate KernelSU Manually
         run: |
@@ -73,10 +79,10 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ربط المسارات بشكل صحيح ودمج المترجمات الكلاسيكية المتوافقة
+          # ترتيب الـ PATH لتكون أدوات Clang والروابط الجاهزة في المقدمة
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          # صياغة المترجم القياسية المتوقعة من هذا السورس كود بالتحديد
+          # بدء البناء بالصيغة الرسمية المستقرة
           make O=out lahaina_defconfig ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
           make -j$(nproc) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
 
