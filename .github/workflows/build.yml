@@ -21,7 +21,6 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt update
-          # تنظيف الأمر من الحزمة المكسورة والاعتماد على الحزم الأساسية المستقرة فقط
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
       - name: Fetch Clang and GCC Linker via Git (Safe Method)
@@ -37,7 +36,10 @@ jobs:
           fi
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
-          # 2. سحب مستودع الـ Linker الرسمي (GCC 4.9 للأندرويد) لتوفير أداة aarch64-linux-gnu-ld المستقرة
+          # 2. العودة للمجلد الرئيسي الآمن لتفادي خطأ دليل العمل المحذوف
+          cd $GITHUB_WORKSPACE
+
+          # 3. سحب مستودع الـ Linker الرسمي المتوافق مع كيرنال مسم 5.4 (نسخة أندرويد 9/10 المستقرة)
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
 
       - name: Integrate KernelSU Manually
@@ -70,7 +72,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ربط مسارات الـ Clang ومسارات الـ GCC المضافة للـ PATH بشكل صحيح
+          # ربط المسارات بشكل صحيح متضمناً الـ GCC المضاف والـ Clang
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
