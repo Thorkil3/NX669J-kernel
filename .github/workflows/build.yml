@@ -87,15 +87,15 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # حقن المسارات في البيئة الحالية مباشرة قبل التنفيذ
+          # تعديل طريقة تصدير الـ PATH لتكون آمنة وقياسية داخل بيئة ليدمجها الـ Make تلقائياً
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          # البناء مع تمرير الـ PATH الصارم والـ Linker الموحد
-          make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu- PATH=$PATH
-          make -j$(nproc) O=out ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu- PATH=$PATH- name: Upload Build Artifacts
+          # البناء مع تمرير المتغيرات بشكل صريح ونظيف
+          make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
+          make -j$(nproc) O=out ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
+
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Kernel_Image_with_KernelSU
-          path: |
-            out/arch/arm64/boot/Image
-            msm-5.4/out/arch/arm64/boot/Image
+          path: "**/out/arch/arm64/boot/Image"
