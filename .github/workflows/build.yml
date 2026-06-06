@@ -40,12 +40,16 @@ jobs:
           cd $GITHUB_WORKSPACE
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
 
-      - name: Force Linker Injection (The Ultimate Fix)
+          # 3. الحل العبقري: حقن المسارات في نظام الـ GitHub Actions بالكامل لضمان رؤية ld.lld
+          echo "$GITHUB_WORKSPACE/clang/bin" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/gcc64/bin" >> $GITHUB_PATH
+
+      - name: Force Linker Injection (System-Wide Symlinks)
         run: |
           CLANG_LLD="$GITHUB_WORKSPACE/clang/bin/ld.lld"
           
           if [ -f "$CLANG_LLD" ]; then
-            # إنشاء الروابط لـ ld.lld في كل مكان في النظام والمجلدات المساعدة لضمان القراءة الشاملة
+            # ربط الـ Linker في المجلدات الرئيسية بشكل صارم
             sudo ln -sf "$CLANG_LLD" /usr/bin/ld.lld
             sudo ln -sf "$CLANG_LLD" /usr/bin/aarch64-linux-android-ld
             sudo ln -sf "$CLANG_LLD" /usr/bin/aarch64-linux-gnu-ld
@@ -87,10 +91,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # تعديل طريقة تصدير الـ PATH لتكون آمنة وقياسية داخل بيئة ليدمجها الـ Make تلقائياً
-          export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
-          
-          # البناء مع تمرير المتغيرات بشكل صريح ونظيف
+          # البناء مباشرة والبيئة الآن محقونة وجاهزة تلقائياً
           make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
           make -j$(nproc) O=out ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
 
