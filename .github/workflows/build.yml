@@ -21,23 +21,24 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt update
-          # إضافة gcc-aarch64-linux-gnu لتوفير الـ Linker المطلوب رسميًا للكيرنال
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib gcc-aarch64-linux-gnu git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+          # تنظيف الأمر من الحزمة المكسورة والاعتماد على الحزم الأساسية المستقرة فقط
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
-      - name: Fetch Clang Compiler via Git (Safe Method)
+      - name: Fetch Clang and GCC Linker via Git (Safe Method)
         run: |
+          # 1. سحب مستودع المترجمات (Clang)
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
-          
           mkdir -p $GITHUB_WORKSPACE/clang
           cd $GITHUB_WORKSPACE/clang-prebuilt
-          
           if [ -d "clang-r418222b" ]; then
             mv clang-r418222b/* $GITHUB_WORKSPACE/clang/
           elif [ -d "clang-stable" ]; then
             mv clang-stable/* $GITHUB_WORKSPACE/clang/
           fi
-          
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
+
+          # 2. سحب مستودع الـ Linker الرسمي (GCC 4.9 للأندرويد) لتوفير أداة aarch64-linux-gnu-ld المستقرة
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
 
       - name: Integrate KernelSU Manually
         run: |
@@ -69,12 +70,11 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # تعريف مسارات المترجم والـ Linker بشكل كامل وصحيح
-          export PATH=$GITHUB_WORKSPACE/clang/bin:/usr/bin:$PATH
+          # ربط مسارات الـ Clang ومسارات الـ GCC المضافة للـ PATH بشكل صحيح
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CROSS_COMPILE=aarch64-linux-android-
           export CC=clang
           export LD=ld.lld
           
