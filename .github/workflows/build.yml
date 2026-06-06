@@ -25,15 +25,21 @@ jobs:
 
       - name: Fetch Clang Compiler via Git (Safe Method)
         run: |
-          # سحب المترجم كملفات مفتوحة مباشرة لتفادي مشاكل الحجب وفك الضغط
+          # سحب مستودع المترجمات بشكل مباشر
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
           
-          # إنشاء مجلد الـ clang القياسي وربطه بالنسخة المطلوبة
+          # إنشاء مجلد الـ clang ونقل الملفات المطلوبة مباشرة بدون أوامر checkout زائدة
           mkdir -p $GITHUB_WORKSPACE/clang
-          # سحب نسخة clang-r418222b المطلوبة من داخل المستودع المستقر
           cd $GITHUB_WORKSPACE/clang-prebuilt
-          git checkout FETCH_HEAD
-          mv clang-r418222b/* $GITHUB_WORKSPACE/clang/  mv clang-stable/* $GITHUB_WORKSPACE/clang/  true
+          
+          # نقل محتويات نسخة clang-r418222b المحددة للكيرنال
+          if [ -d "clang-r418222b" ]; then
+            mv clang-r418222b/* $GITHUB_WORKSPACE/clang/
+          elif [ -d "clang-stable" ]; then
+            mv clang-stable/* $GITHUB_WORKSPACE/clang/
+          fi
+          
+          # تنظيف المجلد المؤقت لتوفير المساحة
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
       - name: Integrate KernelSU Manually
