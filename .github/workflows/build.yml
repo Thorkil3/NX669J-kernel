@@ -12,24 +12,17 @@ jobs:
           curl -L -o kernel.zip https://github.com/ztemt/NX669J-kernel/archive/refs/heads/main.zip
           unzip -q kernel.zip
           
-          # طباعة المحتويات في السيرفر لنعرف الترتيب الحقيقي للمجلدات
-          echo "=== المحتويات بعد فك الضغط مباشرة ==="
-          ls -la
-          
-          # محاولة نقل الملفات إذا كانت داخل مجلد فرعي
           if [ -d "NX669J-kernel-main" ]; then
             mv NX669J-kernel-main/* . || true
             rm -rf NX669J-kernel-main
           fi
-          
-          echo "=== المحتويات في المجلد الرئيسي الآن ==="
-          ls -la
           rm -f kernel.zip
 
       - name: Setup Build Environment
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzops pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+          # تم استبدال lzops بـ lzop لتتوافق مع نظام السيرفر الحديث
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
       - name: Download Clang Compiler
         run: |
@@ -41,15 +34,10 @@ jobs:
       - name: Integrate KernelSU Manually
         run: |
           cd $GITHUB_WORKSPACE
-          
-          # تحديد المجلد الفعلي للكود
           TARGET_DIR="."
           if [ -d "msm-5.4" ]; then TARGET_DIR="msm-5.4"; fi
           cd $TARGET_DIR
           
-          echo "=== نعمل الآن داخل مجلد: $TARGET_DIR ==="
-
-          # تحميل كود KernelSU المستقر وإلغاء الاعتماد على الفروع التجريبية
           mkdir -p drivers/kernelsu
           curl -L https://github.com/tiann/KernelSU/archive/refs/heads/main.zip -o ksu.zip
           unzip -q ksu.zip
@@ -60,7 +48,6 @@ jobs:
           fi
           rm -f ksu.zip
 
-          # ربط محرك التثبيت وإضافة الإعدادات للملفات المتوفرة
           if [ -f "drivers/Makefile" ]; then
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
@@ -80,9 +67,8 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CC=clang
           
-          # تشغيل البناء مع تفعيل خيار تخطي الأخطاء البسيطة لملفات الإعدادات
-          make O=out lahaina_defconfig || true
-          make -j$(nproc) O=out || true
+          make O=out lahaina_defconfig
+          make -j$(nproc) O=out
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
