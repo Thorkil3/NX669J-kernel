@@ -21,7 +21,6 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt update
-          # تم تصحيح الحزم هنا وإزالة الحزم المسببة للمشاكل في بيئة GitHub Actions
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
       - name: Fetch Clang and GCC Toolchains via Git
@@ -43,16 +42,10 @@ jobs:
 
       - name: Force Absolute Symlinks everywhere
         run: |
-          # هنا نقوم بإنشاء روابط صلبة بالأسماء التي يبحث عنها الـ Kconfig صراحة
-          # نأخذ أداة الـ ld الأصلية من الـ gcc64 ونربطها في كل مكان ممكن
           GCC_LD="$GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld"
-          
           if [ -f "$GCC_LD" ]; then
-            # ربطها داخل مجلد Clang
             ln -sf "$GCC_LD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
             ln -sf "$GCC_LD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
-            
-            # ربطها داخل النظام نفسه لضمان القراءة الشاملة
             sudo ln -sf "$GCC_LD" /usr/bin/aarch64-linux-android-ld
             sudo ln -sf "$GCC_LD" /usr/bin/aarch64-linux-gnu-ld
           fi
@@ -87,16 +80,15 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ترتيب البيئة وتمرير المسارات المطلوبة في المقدمة
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          # إجبار الـ Make على استخدام الـ Linker المدمج وحل التناقض
           make O=out lahaina_defconfig ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
-          make -j$(nproc) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-- name: Upload Build Artifacts
+          make -j$(nproc) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
+
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Kernel_Image_with_KernelSU
           path: |
             out/arch/arm64/boot/Image
             msm-5.4/out/arch/arm64/boot/Image
-            
