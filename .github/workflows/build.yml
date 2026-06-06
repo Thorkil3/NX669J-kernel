@@ -23,10 +23,14 @@ jobs:
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
-      - name: Setup Clang Compiler (Official Action)
-        uses: egm16/setup-clang@v1
-        with:
-          version: '12' # النسخة المستقرة والمتوافقة جداً مع كيرنال أندرويد 11 لجهازك
+      - name: Download Clang Compiler (Fixed Curl)
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/clang
+          cd $GITHUB_WORKSPACE/clang
+          # استخدام خيارات إضافية مع curl لضمان تحميل الملف كاملاً وتتبع التحويلات الأمنية
+          curl -k -L -O "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r418222b.tar.gz"
+          tar -zxf clang-r418222b.tar.gz
+          rm -f clang-r418222b.tar.gz
 
       - name: Integrate KernelSU Manually
         run: |
@@ -58,6 +62,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
