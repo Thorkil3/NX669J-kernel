@@ -9,7 +9,7 @@ jobs:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
-          submodules: 'recursive'
+          submodules: false # تم إلغاء السحب المتكرر للمشاريع الفرعية المكسورة
           fetch-depth: 1
 
       - name: Setup Build Environment
@@ -24,20 +24,30 @@ jobs:
           curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r418222b.tar.gz
           tar -xf clang-r418222b.tar.gz
 
-      - name: Integrate KernelSU (Direct Mode)
+      - name: Integrate KernelSU
         run: |
           cd $GITHUB_WORKSPACE
-          mkdir -p drivers/kernelsu
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main || true
-          echo "CONFIG_KSU=y" >> arch/arm64/configs/lahaina_defconfig
+          # سحب السكربت الرسمي وتمرير معطيات التثبيت مباشرة
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+          
+          # التأكد من إضافة الإعداد إلى ملف الـ defconfig الصحيح في المسار المتوفر
+          if [ -f "arch/arm64/configs/lahaina_defconfig" ]; then
+            echo "CONFIG_KSU=y" >> arch/arm64/configs/lahaina_defconfig
+          elif [ -f "msm-5.4/arch/arm64/configs/lahaina_defconfig" ]; then
+            echo "CONFIG_KSU=y" >> msm-5.4/arch/arm64/configs/lahaina_defconfig
+          fi
 
       - name: Build Kernel
         run: |
+          # الانتقال للمجلد الصحيح إذا كان السورس مضغوطاً بداخل مجلد فرعي
+          if [ -d "msm-5.4" ]; then cd msm-5.4; fi
+          
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CC=clang
+          
           make O=out lahaina_defconfig
           make -j$(nproc) O=out
 
@@ -45,4 +55,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Kernel_Image_with_KernelSU
-          path: out/arch/arm64/boot/Image
+          path: |
+            out/arch/arm64/boot/Image
+            msm-5.4/out/arch/arm64/boot/Image
