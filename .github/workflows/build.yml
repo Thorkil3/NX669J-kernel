@@ -21,11 +21,12 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+          # إضافة الحزمة الرسمية binutils لتوفير الـ Linker الكلاسيكي المتوافق مع الكود مباشرة
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev binutils-aarch64-linux-gnu
 
-      - name: Fetch Clang and GCC Linker via Git (Safe Method)
+      - name: Fetch Clang and GCC Toolchains via Git
         run: |
-          # 1. سحب مستودع المترجمات (Clang)
+          # 1. سحب مستودع المترجمات الرسمي (Clang)
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
           mkdir -p $GITHUB_WORKSPACE/clang
           cd $GITHUB_WORKSPACE/clang-prebuilt
@@ -39,7 +40,7 @@ jobs:
           # 2. العودة للمجلد الرئيسي
           cd $GITHUB_WORKSPACE
 
-          # 3. سحب مستودع الـ GCC المساعد لتوفير بقية الأدوات لـ الـ Kernel
+          # 3. سحب مستودع الـ GCC المساعد المستقر
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
 
       - name: Integrate KernelSU Manually
@@ -72,29 +73,13 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # إعداد وتأكيد الـ PATH
+          # ربط المسارات بشكل صحيح ودمج المترجمات الكلاسيكية المتوافقة
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          # البارامترات الحاسمة لإجبار الكيرنال على استخدام LLVM/Clang Linker بالكامل ومنع طلب الـ ld القديم
-          make O=out lahaina_defconfig \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            LD=ld.lld
+          # صياغة المترجم القياسية المتوقعة من هذا السورس كود بالتحديد
+          make O=out lahaina_defconfig ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
+          make -j$(nproc) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
 
-          make -j$(nproc) O=out \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip
-            
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
