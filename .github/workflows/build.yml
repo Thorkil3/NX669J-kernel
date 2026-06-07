@@ -21,7 +21,7 @@ jobs:
       - name: Setup Build Environment & Install LLVM Tools
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config
 
       - name: Fetch Official Clang Toolchain via Git
         run: |
@@ -77,30 +77,34 @@ jobs:
             cp arch/arm64/configs/lahaina_defconfig out/.config
           fi
           
-          # 3. إخماد وتعطيل توقيع الموديولات أمنياً وتفعيل الـ KernelSU لتفادي أخطاء الـ OpenSSL 3.0
+          # 3. إخماد الحماية بالكامل وتصفير الشهادات لمنع استدعاء الـ OpenSSL بشكل خاطئ
           if [ -f "out/.config" ]; then
             sed -i '/CONFIG_KSU/d' out/.config
             sed -i '/CONFIG_MODULE_SIG/d' out/.config
+            sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
+            sed -i '/CONFIG_SYSTEM_REVOCATION_KEYS/d' out/.config
             
             echo "CONFIG_KSU=y" >> out/.config
             echo "CONFIG_MODULE_SIG=n" >> out/.config
             echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
             echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
-            echo "====> Safety Security Patch Injected <===="
+            echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
+            echo 'CONFIG_SYSTEM_REVOCATION_KEYS=""' >> out/.config
+            echo "====> Direct .config Pure Stripping Done <===="
           fi
 
-      - name: Build Kernel (Direct Compilation Mode)
+      - name: Build Kernel (Safe Host Compilation Mode)
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # نمرر أمر تجاهل تحذيرات المكتبات القديمة للمضيف أثناء إعداد التكوين البنائي
-          HOSTCFLAGS="-Wno-deprecated-declarations" make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          # إعداد التكوين الأولي المستقر
+          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # الطبخ الفعلي النهائي للكيرنال
-          HOSTCFLAGS="-Wno-deprecated-declarations" make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          # الطبخ الفعلي النهائي مع تزويد الـ Linker بمكتبات التشفير الصواب للمضيف لتخطي مرحلة الـ scripts
+          HOSTLDLIBS="-lssl -lcrypto" make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
