@@ -21,7 +21,7 @@ jobs:
       - name: Setup Build Environment & Install LLVM Tools
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev
 
       - name: Fetch Official Clang Toolchain via Git
         run: |
@@ -67,7 +67,7 @@ jobs:
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # 2. تعطيل بناء أدوات التوقيع والشهادات اللعينة من داخل الـ Makefile الخاص بالسكربتات لمنع استدعاء OpenSSL بالكامل
+          # 2. تعطيل بناء أدوات التوقيع لمنع تعارضات الـ OpenSSL القديمة
           if [ -f "scripts/Makefile" ]; then
             sed -i 's/hostprogs-always-y += sign-file/# hostprogs-always-y += sign-file/g' scripts/Makefile
             sed -i 's/hostprogs-always-y += extract-cert/# hostprogs-always-y += extract-cert/g' scripts/Makefile
@@ -97,18 +97,18 @@ jobs:
             echo "====> Clean Safe Patch Applied Successfully <===="
           fi
 
-      - name: Build Kernel (Standard Compilation Mode)
+      - name: Build Kernel (Diagnostic Output Mode)
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # توليد التكوين الصافي والمستقر
+          # توليد التكوين الصافي المستقر
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # إطلاق عملية تجميع وبناء الكيرنال الصافية
-          make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          # البناء مع توجيه الأخطاء بوضوح وبدون خلط الأسطر لمعرفة الملف المسبب للفصلة
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
