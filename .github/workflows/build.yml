@@ -55,25 +55,39 @@ jobs:
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
-      - name: Fix Source Code & Force Inject Configurations
+      - name: Hard Patch Makefile and Certs & Inject Linkers
         run: |
           cd $GITHUB_WORKSPACE
-          if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # 1. تنظيف ملف الـ Kconfig الخاص بالإضاءة لمنع تحذيرات الترميز
+          # 1. إنشاء الـ custom_bin الخاص بنا لحقن الـ الروابط لـ تخطي فحص ld.lld تماماً
+          mkdir -p $GITHUB_WORKSPACE/custom_bin
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld.lld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-gnu-ld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-gnu-ld.lld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-android-ld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld.lld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld
+
+          # الدخول لمجلد الكود الفعلي
+          if [ -d "msm-5.4" ]; then cd msm-5.4; fi
+
+          # 2. البتر الجذري لأدوات التوقيع داخل ملفات السكربت لمنع استدعاء الـ OpenSSL القديم نهائياً
+          if [ -f "scripts/Makefile" ]; then
+            sed -i 's/hostprogs-always-y += sign-file/# hostprogs-always-y += sign-file/g' scripts/Makefile
+            sed -i 's/hostprogs-always-y += extract-cert/# hostprogs-always-y += extract-cert/g' scripts/Makefile
+            sed -i 's/hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/# hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/g' scripts/Makefile
+            sed -i 's/hostprogs-y += sign-file/# hostprogs-y += sign-file/g' scripts/Makefile
+            sed -i 's/hostprogs-y += extract-cert/# hostprogs-y += extract-cert/g' scripts/Makefile
+          fi
+
+          # 3. تنظيف وتعديل ملف اضاءة نوبيا العقيم لتفادي مشاكل الحروف غير المدعومة
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # 2. تعطيل بناء أدوات التوقيع لمنع تعارضات الـ OpenSSL القديمة
-          if [ -f "scripts/Makefile" ]; then
-            sed -i 's/hostprogs-always-y += sign-file/# hostprogs-always-y += sign-file/g' scripts/Makefile
-            sed -i 's/hostprogs-always-y += extract-cert/# hostprogs-always-y += extract-cert/g' scripts/Makefile
-            sed -i 's/hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/# hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/g' scripts/Makefile
-          fi
-
-          # 3. تجهيز مجلد المخرجات وملف التكوين مباشرة
+          # 4. بناء مجلد المخرجات وضخ إعدادات إلغاء الحماية والتوقيع بملف الـ .config
           mkdir -p out
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             cp arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig out/.config
@@ -83,7 +97,6 @@ jobs:
             cp arch/arm64/configs/lahaina_defconfig out/.config
           fi
           
-          # 4. إخماد الحماية بالكامل وتأكيد الإعدادات
           if [ -f "out/.config" ]; then
             sed -i '/CONFIG_KSU/d' out/.config
             sed -i '/CONFIG_MODULE_SIG/d' out/.config
@@ -93,37 +106,21 @@ jobs:
             echo "CONFIG_MODULE_SIG=n" >> out/.config
             echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
             echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
-            echo "====> Patches Applied Successfully <===="
           fi
 
-      - name: Force Inject Linkers & Build Full Kernel
+      - name: Ultimate Safe Kernel Build
         run: |
           cd $GITHUB_WORKSPACE
-          
-          # فكرة عبقرية: إنشاء مجلد برابط وهمي مخصص لدمج الأدوات وحقن الـ الروابط فيه مباشرة
-          mkdir -p $GITHUB_WORKSPACE/custom_bin
-          
-          # نسخ الـ ld.lld الرئيسي من النظام وحقنه بكل الأسماء التي قد يطلبها الكيرنال
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld.lld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-gnu-ld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-gnu-ld.lld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-android-ld
-          
-          # أيضاً ننسخها إلى مجلد الـ clang الاحتياطي تأكيداً للأمان
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld.lld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld
-
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ترتيب الأولويات في الـ PATH: مجلدنا المخصص أولاً، ثم الـ Clang، ثم السيستم
+          # إعداد البيئة الشاملة
           export PATH=$GITHUB_WORKSPACE/custom_bin:$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # توليد التكوين المستقر بدون الحاجة لـ CROSS_COMPILE الخارجي
-          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- PATH=$GITHUB_WORKSPACE/custom_bin:$GITHUB_WORKSPACE/clang/bin:$PATH
+          # توليد التكوين النهائي المعتمد
+          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # بدء الطبخ الفعلي بكامل طاقة السيرفر المتوازية
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- PATH=$GITHUB_WORKSPACE/custom_bin:$GITHUB_WORKSPACE/clang/bin:$PATH -j$(nproc)
+          # إطلاق الطبخ الفعلي النهائي والسيرفر صار مروض 100%
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j$(nproc)
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
