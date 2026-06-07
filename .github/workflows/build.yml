@@ -97,7 +97,7 @@ jobs:
             echo "====> Clean Safe Patch Applied Successfully <===="
           fi
 
-      - name: Build Kernel (Diagnostic Output Mode)
+      - name: Build Kernel (Force Verbose Single-Core Mode)
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
@@ -107,11 +107,5 @@ jobs:
           # توليد التكوين الصافي المستقر
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # البناء مع توجيه الأخطاء بوضوح وبدون خلط الأسطر لمعرفة الملف المسبب للفصلة
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
-
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel_Image_with_KernelSU
-          path: "**/out/arch/arm64/boot/Image"
+          # البناء بنواة واحدة مع تفعيل خيار التفصيل الكامل V=1 لرؤية سطر الخطأ بوضوح
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- V=1
