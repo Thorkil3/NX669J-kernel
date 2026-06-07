@@ -55,11 +55,11 @@ jobs:
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
-      - name: Hard Patch Makefile and Certs & Inject Linkers
+      - name: Ultimate Hard Patching & Safe Environment Prep
         run: |
           cd $GITHUB_WORKSPACE
           
-          # 1. إنشاء الـ custom_bin الخاص بنا لحقن الـ الروابط لـ تخطي فحص ld.lld تماماً
+          # إنشاء مجلد الـ custom_bin لتخطي مشاكل الـ Linker للأبد
           mkdir -p $GITHUB_WORKSPACE/custom_bin
           cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld.lld
           cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld
@@ -69,25 +69,26 @@ jobs:
           cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld.lld
           cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld
 
-          # الدخول لمجلد الكود الفعلي
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # 2. البتر الجذري لأدوات التوقيع داخل ملفات السكربت لمنع استدعاء الـ OpenSSL القديم نهائياً
-          if [ -f "scripts/Makefile" ]; then
-            sed -i 's/hostprogs-always-y += sign-file/# hostprogs-always-y += sign-file/g' scripts/Makefile
-            sed -i 's/hostprogs-always-y += extract-cert/# hostprogs-always-y += extract-cert/g' scripts/Makefile
-            sed -i 's/hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/# hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/g' scripts/Makefile
-            sed -i 's/hostprogs-y += sign-file/# hostprogs-y += sign-file/g' scripts/Makefile
-            sed -i 's/hostprogs-y += extract-cert/# hostprogs-y += extract-cert/g' scripts/Makefile
+          # إفراغ ملفات التوقيع اللعينة تماماً وجعلها مجرد كود فارغ يمر بسلام بدون الـ OpenSSL
+          if [ -f "scripts/sign-file.c" ]; then
+            echo 'int main(void) { return 0; }' > scripts/sign-file.c
+          fi
+          if [ -f "scripts/extract-cert.c" ]; then
+            echo 'int main(void) { return 0; }' > scripts/extract-cert.c
+          fi
+          if [ -f "scripts/insert-sys-cert.c" ]; then
+            echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c
           fi
 
-          # 3. تنظيف وتعديل ملف اضاءة نوبيا العقيم لتفادي مشاكل الحروف غير المدعومة
+          # تنظيف ملف تكوين نوبيا المزعج للـ LEDs من الأحرف غير المدعومة
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # 4. بناء مجلد المخرجات وضخ إعدادات إلغاء الحماية والتوقيع بملف الـ .config
+          # تجهيز مجلد المخرجات ونسخ الـ Defconfig
           mkdir -p out
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             cp arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig out/.config
@@ -96,30 +97,34 @@ jobs:
           elif [ -f "arch/arm64/configs/lahaina_defconfig" ]; then
             cp arch/arm64/configs/lahaina_defconfig out/.config
           fi
-          
-          if [ -f "out/.config" ]; then
-            sed -i '/CONFIG_KSU/d' out/.config
-            sed -i '/CONFIG_MODULE_SIG/d' out/.config
-            sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
-            
-            echo "CONFIG_KSU=y" >> out/.config
-            echo "CONFIG_MODULE_SIG=n" >> out/.config
-            echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
-            echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
-          fi
 
-      - name: Ultimate Safe Kernel Build
+      - name: Force Apply Defconfig Modifications & Final Build
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # إعداد البيئة الشاملة
           export PATH=$GITHUB_WORKSPACE/custom_bin:$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # توليد التكوين النهائي المعتمد
+          # خطوة 1: توليد التكوين الأولي المستقر
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # إطلاق الطبخ الفعلي النهائي والسيرفر صار مروض 100%
+          # خطوة 2: الصعق النهائي لخيارات الحماية والتوقيع داخل التكوين المولد وتفعيل KernelSU
+          sed -i '/CONFIG_KSU/d' out/.config
+          sed -i '/CONFIG_MODULE_SIG/d' out/.config
+          sed -i '/CONFIG_MODULE_SIG_ALL/d' out/.config
+          sed -i '/CONFIG_MODULE_SIG_FORCE/d' out/.config
+          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
+          
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_MODULE_SIG=n" >> out/.config
+          echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
+          echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
+          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
+
+          # خطوة 3: تثبيت التكوين الجديد نهائياً بعد التعديل الصارم
+          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          
+          # خطوة 4: الانطلاق الفعلي ببناء ملف الكيرنال النهائي
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j$(nproc)
 
       - name: Upload Build Artifacts
