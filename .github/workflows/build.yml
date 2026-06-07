@@ -25,7 +25,6 @@ jobs:
 
       - name: Fetch Official Clang Toolchain via Git
         run: |
-          # سحب مستودع المترجمات الرسمي المتكامل (Clang) فقط
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
           mkdir -p $GITHUB_WORKSPACE/clang
           cd $GITHUB_WORKSPACE/clang-prebuilt
@@ -56,21 +55,29 @@ jobs:
           if [ -f "drivers/Makefile" ]; then
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
-          
-          if [ -f "arch/arm64/configs/lahaina_defconfig" ]; then
-            echo "CONFIG_KSU=y" >> arch/arm64/configs/lahaina_defconfig
-          fi
 
-      - name: Build Kernel (Full Clang & LLVM Mode)
+      - name: Build Kernel (Auto Detect Defconfig & Full LLVM)
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # إدراج مسار Clang الخاص بالنظام والـ Toolchain المستوردة
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # البناء عبر منظومة LLVM الكاملة التي تتكفل بالـ Compiler والـ Linker معاً تلقائياً
-          make O=out lahaina_defconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          # خطوة ذكية: البحث عن الـ Defconfig الحقيقي الذي يحتوي على كلمة lahaina وتحديده تلقائياً
+          REAL_DEFCONFIG=$(find arch/arm64/configs/ -name "*lahaina*" | head -n 1 | xargs basename)
+          
+          # إذا لم يجد أي ملف، نضع الاسم الافتراضي كاحتياط
+          if [ -z "$REAL_DEFCONFIG" ]; then REAL_DEFCONFIG="lahaina_defconfig"; fi
+          echo "====> Found and using Defconfig: $REAL_DEFCONFIG <===="
+          
+          # حقن كود KernelSU داخل الملف المستهدف تلقائياً قبل بدء البناء
+          if [ -f "arch/arm64/configs/$REAL_DEFCONFIG" ]; then
+            sed -i '/CONFIG_KSU/d' arch/arm64/configs/$REAL_DEFCONFIG
+            echo "CONFIG_KSU=y" >> arch/arm64/configs/$REAL_DEFCONFIG
+          fi
+          
+          # بدء البناء الفعلي المستقر
+          make O=out $REAL_DEFCONFIG ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
