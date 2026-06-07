@@ -97,15 +97,25 @@ jobs:
             echo "====> Clean Safe Patch Applied Successfully <===="
           fi
 
-      - name: Build Kernel (Force Verbose Single-Core Mode)
+      - name: Fix Linker Paths & Build Kernel
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
+          # إجبار النظام على ربط الـ ld.lld الخاص بـ Clang بمسارات النظام الأساسية لمنع الاختفاء
+          sudo ln -sf $GITHUB_WORKSPACE/clang/bin/ld.lld /usr/bin/ld.lld
+          sudo ln -sf $GITHUB_WORKSPACE/clang/bin/ld.lld /usr/bin/aarch64-linux-gnu-ld.lld
+          
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           
           # توليد التكوين الصافي المستقر
-          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # البناء بنواة واحدة مع تفعيل خيار التفصيل الكامل V=1 لرؤية سطر الخطأ بوضوح
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- V=1
+          # البناء المتوازي السريع مع التمرير الصارم لمسار الأدوات لمنع الفصل المفاجئ
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- PATH=$GITHUB_WORKSPACE/clang/bin:$PATH -j$(nproc)
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel_Image_with_KernelSU
+          path: "**/out/arch/arm64/boot/Image"
