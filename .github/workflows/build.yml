@@ -21,7 +21,7 @@ jobs:
       - name: Setup Build Environment & Install LLVM Tools
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev
 
       - name: Fetch Official Clang Toolchain via Git
         run: |
@@ -61,16 +61,14 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # 1. تنظيف ملف الـ Kconfig الخاص بالإضاءة لمنع تحذيرات الترميز الصيني
+          # 1. تنظيف ملف الـ Kconfig الخاص بالإضاءة لمنع تحذيرات الترميز
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # 2. إنشاء مجلد المخرجات مسبقاً وتجهيز ملف التكوين مباشرة لحل معضلة "not found"
+          # 2. تجهيز المخرجات وملف التكوين مباشرة
           mkdir -p out
-          
-          # البحث عن ملف التعديلات الأساسي لنوبيا وضخه مباشرة كـ .config بداخل مجلد out
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             cp arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig out/.config
           elif [ -f "arch/arm64/configs/lahaina-perf_defconfig" ]; then
@@ -79,11 +77,16 @@ jobs:
             cp arch/arm64/configs/lahaina_defconfig out/.config
           fi
           
-          # 3. حقن وتفعيل كود الـ KernelSU والـ Root بالملف المجهز مباشرة
+          # 3. إخماد وتعطيل توقيع الموديولات أمنياً وتفعيل الـ KernelSU لتفادي أخطاء الـ OpenSSL 3.0
           if [ -f "out/.config" ]; then
             sed -i '/CONFIG_KSU/d' out/.config
+            sed -i '/CONFIG_MODULE_SIG/d' out/.config
+            
             echo "CONFIG_KSU=y" >> out/.config
-            echo "====> Direct .config Injection Done Successfully <===="
+            echo "CONFIG_MODULE_SIG=n" >> out/.config
+            echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
+            echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
+            echo "====> Safety Security Patch Injected <===="
           fi
 
       - name: Build Kernel (Direct Compilation Mode)
@@ -93,11 +96,11 @@ jobs:
           
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # تحديث ملف الـ .config وتجهيزه للبناء الصارم بدون استدعاء defconfig خارجي
-          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          # نمرر أمر تجاهل تحذيرات المكتبات القديمة للمضيف أثناء إعداد التكوين البنائي
+          HOSTCFLAGS="-Wno-deprecated-declarations" make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # انطلاق عملية الطبخ والترجمة الفعلية للكيرنال
-          make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          # الطبخ الفعلي النهائي للكيرنال
+          HOSTCFLAGS="-Wno-deprecated-declarations" make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
