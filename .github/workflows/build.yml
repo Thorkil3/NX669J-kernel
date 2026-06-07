@@ -23,17 +23,20 @@ jobs:
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev
 
-      - name: Fetch Official Clang Toolchain via Git
+      - name: Fetch Official Clang & GCC Toolchains via Git
         run: |
+          # 1. تحميل الـ Clang الرسمي لـ أندرويد
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
           mkdir -p $GITHUB_WORKSPACE/clang
-          cd $GITHUB_WORKSPACE/clang-prebuilt
-          if [ -d "clang-r418222b" ]; then
-            mv clang-r418222b/* $GITHUB_WORKSPACE/clang/
-          elif [ -d "clang-stable" ]; then
-            mv clang-stable/* $GITHUB_WORKSPACE/clang/
+          if [ -d "$GITHUB_WORKSPACE/clang-prebuilt/clang-r418222b" ]; then
+            mv $GITHUB_WORKSPACE/clang-prebuilt/clang-r418222b/* $GITHUB_WORKSPACE/clang/
+          elif [ -d "$GITHUB_WORKSPACE/clang-prebuilt/clang-stable" ]; then
+            mv $GITHUB_WORKSPACE/clang-prebuilt/clang-stable/* $GITHUB_WORKSPACE/clang/
           fi
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
+
+          # 2. تحميل الـ GCC الاحتياطي (اللازم لبعض ملفات الـ الروابط القديمة في الـ Host)
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
 
       - name: Integrate KernelSU Manually
         run: |
@@ -61,20 +64,20 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # 1. تنظيف ملف الـ Kconfig الخاص بالإضاءة لمنع تحذيرات الترميز
+          # تنظيف ملف الـ Kconfig الخاص بالإضاءة لمنع تحذيرات الترميز
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # 2. تعطيل بناء أدوات التوقيع لمنع تعارضات الـ OpenSSL القديمة
+          # تعطيل بناء أدوات التوقيع لمنع تعارضات الـ OpenSSL القديمة
           if [ -f "scripts/Makefile" ]; then
             sed -i 's/hostprogs-always-y += sign-file/# hostprogs-always-y += sign-file/g' scripts/Makefile
             sed -i 's/hostprogs-always-y += extract-cert/# hostprogs-always-y += extract-cert/g' scripts/Makefile
             sed -i 's/hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/# hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/g' scripts/Makefile
           fi
 
-          # 3. تجهيز مجلد المخرجات وملف التكوين مباشرة
+          # تجهيز مجلد المخرجات وملف التكوين مباشرة
           mkdir -p out
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             cp arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig out/.config
@@ -84,7 +87,7 @@ jobs:
             cp arch/arm64/configs/lahaina_defconfig out/.config
           fi
           
-          # 4. تأكيد إخماد الحماية بالكامل وتصغير حجم المتطلبات
+          # إخماد الحماية بالكامل وتأكيد الإعدادات
           if [ -f "out/.config" ]; then
             sed -i '/CONFIG_KSU/d' out/.config
             sed -i '/CONFIG_MODULE_SIG/d' out/.config
@@ -94,25 +97,31 @@ jobs:
             echo "CONFIG_MODULE_SIG=n" >> out/.config
             echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
             echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
-            echo "====> Clean Safe Patch Applied Successfully <===="
           fi
 
-      - name: Fix Linker Paths & Build Kernel
+      - name: Force Inject Linkers into Toolchains & Build
         run: |
           cd $GITHUB_WORKSPACE
+          
+          # الخدعة الكبرى: نسخ الـ ld.lld الفعلي من السيستم وحقنه داخل مجلدات الـ bin الخاصة بالـ Clang والـ GCC لضمان عدم اختفائه
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld.lld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld.lld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld.lld
+          
+          # ربط الـ ld العادي بالـ lld أيضاً كخطوة أمان قصوى
+          ln -sf $GITHUB_WORKSPACE/clang/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld
+          ln -sf $GITHUB_WORKSPACE/clang/bin/ld.lld $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld
+
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # إجبار النظام على ربط الـ ld.lld الخاص بـ Clang بمسارات النظام الأساسية لمنع الاختفاء
-          sudo ln -sf $GITHUB_WORKSPACE/clang/bin/ld.lld /usr/bin/ld.lld
-          sudo ln -sf $GITHUB_WORKSPACE/clang/bin/ld.lld /usr/bin/aarch64-linux-gnu-ld.lld
+          # تصدير المسارات للبيئة الحالية
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          # أمر التكوين النهائي مع تمرير البيئة الكاملة
+          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android-
           
-          # توليد التكوين الصافي المستقر
-          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
-          
-          # البناء المتوازي السريع مع التمرير الصارم لمسار الأدوات لمنع الفصل المفاجئ
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- PATH=$GITHUB_WORKSPACE/clang/bin:$PATH -j$(nproc)
+          # بدء البناء الفعلي بكامل الأنوية المتوفرة
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- -j$(nproc)
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
