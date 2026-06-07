@@ -67,7 +67,14 @@ jobs:
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # 2. تجهيز المخرجات وملف التكوين مباشرة
+          # 2. تعطيل بناء أدوات التوقيع والشهادات اللعينة من داخل الـ Makefile الخاص بالسكربتات لمنع استدعاء OpenSSL بالكامل
+          if [ -f "scripts/Makefile" ]; then
+            sed -i 's/hostprogs-always-y += sign-file/# hostprogs-always-y += sign-file/g' scripts/Makefile
+            sed -i 's/hostprogs-always-y += extract-cert/# hostprogs-always-y += extract-cert/g' scripts/Makefile
+            sed -i 's/hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/# hostprogs-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE) += insert-sys-cert/g' scripts/Makefile
+          fi
+
+          # 3. تجهيز مجلد المخرجات وملف التكوين مباشرة
           mkdir -p out
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             cp arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig out/.config
@@ -77,34 +84,31 @@ jobs:
             cp arch/arm64/configs/lahaina_defconfig out/.config
           fi
           
-          # 3. إخماد الحماية بالكامل وتصفير الشهادات لمنع استدعاء الـ OpenSSL بشكل خاطئ
+          # 4. تأكيد إخماد الحماية بالكامل وتصغير حجم المتطلبات
           if [ -f "out/.config" ]; then
             sed -i '/CONFIG_KSU/d' out/.config
             sed -i '/CONFIG_MODULE_SIG/d' out/.config
             sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
-            sed -i '/CONFIG_SYSTEM_REVOCATION_KEYS/d' out/.config
             
             echo "CONFIG_KSU=y" >> out/.config
             echo "CONFIG_MODULE_SIG=n" >> out/.config
             echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
-            echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
             echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
-            echo 'CONFIG_SYSTEM_REVOCATION_KEYS=""' >> out/.config
-            echo "====> Direct .config Pure Stripping Done <===="
+            echo "====> Clean Safe Patch Applied Successfully <===="
           fi
 
-      - name: Build Kernel (Safe Host Compilation Mode)
+      - name: Build Kernel (Standard Compilation Mode)
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # إعداد التكوين الأولي المستقر
+          # توليد التكوين الصافي والمستقر
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # الطبخ الفعلي النهائي مع تزويد الـ Linker بمكتبات التشفير الصواب للمضيف لتخطي مرحلة الـ scripts
-          HOSTLDLIBS="-lssl -lcrypto" make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          # إطلاق عملية تجميع وبناء الكيرنال الصافية
+          make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
