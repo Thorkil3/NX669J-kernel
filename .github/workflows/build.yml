@@ -18,10 +18,11 @@ jobs:
           fi
           rm -f kernel.zip
 
-      - name: Setup Build Environment
+      - name: Setup Build Environment & Install LLVM/Lld
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+          # تثبيت الـ lld والـ llvm التابعين للنظام مباشرة لضمان أعلى توافقية وصلاحيات تشغيل كاملة
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm
 
       - name: Fetch Clang and GCC Toolchains via Git
         run: |
@@ -40,22 +41,17 @@ jobs:
           cd $GITHUB_WORKSPACE
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
 
-      - name: Inject Hard Binaries and Fix Missing Linker
+      - name: Link System LLD to Toolchains
         run: |
-          CLANG_LLD="$GITHUB_WORKSPACE/clang/bin/ld.lld"
-          
-          if [ -f "$CLANG_LLD" ]; then
-            # زرع النسخ الصلبة في مجلدات الـ bin للمترجمات بالأسماء المطلوبة
-            cp "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
-            cp "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
-            cp "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/ld.lld
+          # نربط الـ lld الموثوق والخاص بالسيرفر نفسه داخل مجلدات البناء ليتخطى فحص الصلاحيات تماماً
+          SYSTEM_LLD=$(which ld.lld)
+          if [ ! -z "$SYSTEM_LLD" ]; then
+            ln -sf "$SYSTEM_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
+            ln -sf "$SYSTEM_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
+            ln -sf "$SYSTEM_LLD" $GITHUB_WORKSPACE/clang/bin/ld.lld
             
-            cp "$CLANG_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld
-            cp "$CLANG_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-gnu-ld
-            
-            # إعطاء صلاحيات التشغيل الكاملة
-            chmod +x $GITHUB_WORKSPACE/clang/bin/*
-            chmod +x $GITHUB_WORKSPACE/gcc64/bin/*
+            ln -sf "$SYSTEM_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld
+            ln -sf "$SYSTEM_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-gnu-ld
           fi
 
       - name: Integrate KernelSU Manually
@@ -88,12 +84,11 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # إجبار البيئة المحلية على رؤية المجلدات أولاً
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          # الطريقة القاضية: نمرر المسار المباشر للأداة كاملة (Absolute Paths) في متغير الـ CROSS_COMPILE والـ LD نفسه لكسر حماية الـ Kconfig
-          make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=$GITHUB_WORKSPACE/clang/bin/ld.lld CROSS_COMPILE=$GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android- CLANG_TRIPLE=$GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-
-          make -j$(nproc) O=out ARCH=arm64 CC=clang LD=$GITHUB_WORKSPACE/clang/bin/ld.lld CROSS_COMPILE=$GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android- CLANG_TRIPLE=$GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-
+          # نمرر الـ LD مستخدمين نسخة النظام المستقرة التي تم تفعيلها
+          make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
+          make -j$(nproc) O=out ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
