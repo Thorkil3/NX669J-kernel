@@ -36,27 +36,26 @@ jobs:
           fi
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
-          # 2. العودة للمجلد الرئيسي وسحب مستودع الـ GCC المساعد
+          # 2. سحب مستودع الـ GCC المساعد
           cd $GITHUB_WORKSPACE
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
 
-      - name: Inject Hard Binaries into Toolchain Paths
+      - name: Inject Hard Binaries and Fix Missing Linker
         run: |
           CLANG_LLD="$GITHUB_WORKSPACE/clang/bin/ld.lld"
           
           if [ -f "$CLANG_LLD" ]; then
-            # نسخ ملف الـ Binary الفعلي داخل مجلدات الـ bin للمترجمات لضمان القراءة الإجبارية
+            # زرع النسخ الصلبة في مجلدات الـ bin للمترجمات بالأسماء المطلوبة
             cp "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
             cp "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
+            cp "$CLANG_LLD" $GITHUB_WORKSPACE/clang/bin/ld.lld
             
             cp "$CLANG_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld
             cp "$CLANG_LLD" $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-gnu-ld
             
-            # إعطاء صلاحيات التشغيل الكاملة للملفات المنسوخة
-            chmod +x $GITHUB_WORKSPACE/clang/bin/aarch64-linux-android-ld
-            chmod +x $GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-ld
-            chmod +x $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android-ld
-            chmod +x $GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-gnu-ld
+            # إعطاء صلاحيات التشغيل الكاملة
+            chmod +x $GITHUB_WORKSPACE/clang/bin/*
+            chmod +x $GITHUB_WORKSPACE/gcc64/bin/*
           fi
 
       - name: Integrate KernelSU Manually
@@ -89,12 +88,12 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # تمرير المسارات محلياً
+          # إجبار البيئة المحلية على رؤية المجلدات أولاً
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$PATH
           
-          # البناء الصارم مع إجبار قراءة الأدوات المحلية المحقونة
-          make O=out lahaina_defconfig ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
-          make -j$(nproc) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android- CLANG_TRIPLE=aarch64-linux-gnu-
+          # الطريقة القاضية: نمرر المسار المباشر للأداة كاملة (Absolute Paths) في متغير الـ CROSS_COMPILE والـ LD نفسه لكسر حماية الـ Kconfig
+          make O=out lahaina_defconfig ARCH=arm64 CC=clang LD=$GITHUB_WORKSPACE/clang/bin/ld.lld CROSS_COMPILE=$GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android- CLANG_TRIPLE=$GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-
+          make -j$(nproc) O=out ARCH=arm64 CC=clang LD=$GITHUB_WORKSPACE/clang/bin/ld.lld CROSS_COMPILE=$GITHUB_WORKSPACE/gcc64/bin/aarch64-linux-android- CLANG_TRIPLE=$GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
