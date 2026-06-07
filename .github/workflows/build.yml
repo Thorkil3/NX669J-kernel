@@ -56,32 +56,43 @@ jobs:
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
-      - name: Build Kernel (Generate Full Defconfig & Full LLVM)
+      - name: Fix Source Code Encoding & Generate Defconfig
+        run: |
+          cd $GITHUB_WORKSPACE
+          if [ -d "msm-5.4" ]; then cd msm-5.4; fi
+          
+          # 1. تنظيف الحروف الصينية والغريبة من ملفات الـ Kconfig لتعريفات الإضاءة لمنع توقف البناء
+          if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
+            tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
+            mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
+          fi
+
+          # 2. توليد وصناعة ملف الإعدادات الأصلي بالاسم الصارم المعتمد للجهاز
+          cd arch/arm64/configs/
+          if [ -f "vendor/lahaina-qgki-perf_defconfig" ]; then
+            cp vendor/lahaina-qgki-perf_defconfig lahaina_defconfig
+          elif [ -f "lahaina-perf_defconfig" ]; then
+            cp lahaina-perf_defconfig lahaina_defconfig
+          fi
+          
+          # 3. تفعيل وحقن خيار الـ KernelSU داخل ملف الـ lahaina_defconfig الذي تمت صناعته
+          if [ -f "lahaina_defconfig" ]; then
+            sed -i '/CONFIG_KSU/d' lahaina_defconfig
+            echo "CONFIG_KSU=y" >> lahaina_defconfig
+          fi
+
+      - name: Build Kernel (Full LLVM Strict Mode)
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # إنشاء مجلد المخرجات مسبقاً وتوليد ملف الإعدادات المدمج الكامل للصين/العالمي (lahaina + vendor)
+          # إنشاء مجلد المخرجات والتكوين الأولي عبر الملف الذي أصلحناه
           mkdir -p out
+          make O=out lahaina_defconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # استدعاء دمج ملف نوبيا الافتراضي مع معالج كوالكوم لإنشاء التكوين الصحيح
-          if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
-            make O=out vendor/lahaina-qgki-perf_defconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
-          elif [ -f "arch/arm64/configs/lahaina-perf_defconfig" ]; then
-            make O=out lahaina-perf_defconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
-          else
-            make O=out lahaina_defconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
-          fi
-          
-          # حقن وتفعيل كود KernelSU في ملف الـ .config المكتمل الناتج من الخطوة السابقة
-          if [ -f "out/.config" ]; then
-            sed -i '/CONFIG_KSU/d' out/.config
-            echo "CONFIG_KSU=y" >> out/.config
-          fi
-          
-          # بدء الطبخ الفعلي النهائي للكيرنال
+          # بدء البناء المباشر لخلايا الكيرنال
           make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Upload Build Artifacts
