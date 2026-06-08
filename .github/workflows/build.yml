@@ -41,16 +41,12 @@ jobs:
           if [ -d "msm-5.4" ]; then TARGET_DIR="msm-5.4"; fi
           cd $TARGET_DIR
           
-          # مسح أي بقايا مجلدات قديمة لضمان النظافة المطلقة
           rm -rf drivers/kernelsu
-          
-          # السحب المباشر والآمن عبر جيت لنسخة مستقرة لتجنب مشاكل فك الضغط الناقص للملفات
           git clone https://github.com/tiann/KernelSU.git drivers/kernelsu
           cd drivers/kernelsu
           git checkout v0.9.5
           cd ../..
 
-          # ربط المجلد بالـ Makefile الرئيسي للدرايفرات بشكل أصلي
           if [ -f "drivers/Makefile" ]; then
             sed -i '/kernelsu/d' drivers/Makefile
             echo "obj-y += kernelsu/" >> drivers/Makefile
@@ -60,7 +56,6 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           
-          # إنشاء مجلد الـ custom_bin لتخطي مشاكل الـ Linker
           mkdir -p $GITHUB_WORKSPACE/custom_bin
           cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld.lld
           cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld
@@ -72,7 +67,6 @@ jobs:
 
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # تصفير ملفات التوقيع المسببة لمشاكل الـ OpenSSL القديمة
           if [ -f "scripts/sign-file.c" ]; then
             echo 'int main(void) { return 0; }' > scripts/sign-file.c
           fi
@@ -83,13 +77,11 @@ jobs:
             echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c
           fi
 
-          # تنظيف ملف تكوين نوبيا للـ LEDs
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # تجهيز مجلد المخرجات ونسخ الـ Defconfig
           mkdir -p out
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             cp arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig out/.config
@@ -99,7 +91,7 @@ jobs:
             cp arch/arm64/configs/lahaina_defconfig out/.config
           fi
 
-      - name: Force Apply Defconfig Modifications & Final Build
+      - name: Force Apply Defconfig Modifications & Verbose Build
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
@@ -125,8 +117,9 @@ jobs:
           # خطوة 3: تثبيت الإعدادات
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # خطوة 4: الطبخ الفعلي النهائي للكيرنال
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j$(nproc)
+          # خطوة 4: محاولة البناء السريع، وفي حال الفشل يتم التحويل التلقائي لنواة واحدة مع إظهار تفاصيل الخطأ كاملة
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j$(nproc) || \
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j1 V=1
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
