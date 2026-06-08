@@ -67,6 +67,11 @@ jobs:
 
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
+          # ترقيع ملف الـ brk-imm لمنع خروج القيمة عن الحد المسموح للمترجم الحديث
+          if [ -f "arch/arm64/include/asm/brk-imm.h" ]; then
+            sed -i 's/0x401/0x400/g' arch/arm64/include/asm/brk-imm.h
+          fi
+
           if [ -f "scripts/sign-file.c" ]; then
             echo 'int main(void) { return 0; }' > scripts/sign-file.c
           fi
@@ -82,7 +87,6 @@ jobs:
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # تحديد مسار الـ Defconfig الصافي وتعديله مباشرة من المصدر قبل توليد الـ out/.config
           CONF_PATH=""
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             CONF_PATH="arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig"
@@ -95,8 +99,10 @@ jobs:
           if [ ! -z "$CONF_PATH" ]; then
             sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' $CONF_PATH
             sed -i '/CONFIG_MODULE_SIG/d' $CONF_PATH
+            sed -i '/CONFIG_KGDB/d' $CONF_PATH
             echo "CONFIG_ARM64_LSE_ATOMICS=n" >> $CONF_PATH
             echo "CONFIG_MODULE_SIG=n" >> $CONF_PATH
+            echo "CONFIG_KGDB=n" >> $CONF_PATH
           fi
 
           mkdir -p out
@@ -104,14 +110,13 @@ jobs:
             cp $CONF_PATH out/.config
           fi
 
-      - name: Force Apply Defconfig Modifications & Pure Single-Core Verbose Build
+      - name: Force Apply Defconfig Modifications & Speed Build
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
           export PATH=$GITHUB_WORKSPACE/custom_bin:$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # خطوة 1: توليد التكوين الصارم والتأكد من تنظيف الخيارات
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
           sed -i '/CONFIG_KSU/d' out/.config
@@ -120,6 +125,7 @@ jobs:
           sed -i '/CONFIG_MODULE_SIG_ALL/d' out/.config
           sed -i '/CONFIG_MODULE_SIG_FORCE/d' out/.config
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
+          sed -i '/CONFIG_KGDB/d' out/.config
           
           echo "CONFIG_KSU=y" >> out/.config
           echo "CONFIG_ARM64_LSE_ATOMICS=n" >> out/.config
@@ -127,12 +133,12 @@ jobs:
           echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
           echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
+          echo "CONFIG_KGDB=n" >> out/.config
 
-          # خطوة 2: تثبيت الإعدادات النهائية
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # خطوة 3: البناء الإجباري بنمط النواة الواحدة والتقرير الكامل لتجريد الخطأ تماماً أمام أعيننا
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j1 V=1
+          # البناء بكامل سرعة الأنوية المتاحة الآن بعد إزالة العقبات المسببة للتوقف
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j$(nproc)
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
