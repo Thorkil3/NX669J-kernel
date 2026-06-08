@@ -34,7 +34,7 @@ jobs:
           fi
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
-      - name: Integrate KernelSU Manually
+      - name: Integrate Stable KernelSU Manually
         run: |
           cd $GITHUB_WORKSPACE
           TARGET_DIR="."
@@ -42,16 +42,19 @@ jobs:
           cd $TARGET_DIR
           
           mkdir -p drivers/kernelsu
-          curl -L https://github.com/tiann/KernelSU/archive/refs/heads/main.zip -o ksu.zip
+          # استخدام نسخة مستقرة ومضمونة للـ KernelSU بدل الـ main لتفادي أخطاء البناء
+          curl -L https://github.com/tiann/KernelSU/archive/refs/tags/v0.9.5.zip -o ksu.zip
           unzip -q ksu.zip
           
-          if [ -d "KernelSU-main" ]; then
-            mv KernelSU-main/* drivers/kernelsu/ || true
-            rm -rf KernelSU-main
+          if [ -d "KernelSU-0.9.5" ]; then
+            mv KernelSU-0.9.5/* drivers/kernelsu/ || true
+            rm -rf KernelSU-0.9.5
           fi
           rm -f ksu.zip
 
+          # حقن نظيف داخل الـ Makefile الرئيسي للدرايفرات
           if [ -f "drivers/Makefile" ]; then
+            sed -i '/kernelsu/d' drivers/Makefile
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
@@ -71,7 +74,7 @@ jobs:
 
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # إفراغ ملفات التوقيع اللعينة تماماً وجعلها مجرد كود فارغ يمر بسلام بدون الـ OpenSSL
+          # تصفير ملفات التوقيع عشان نضمن استمرار تخطي الـ OpenSSL بنجاح ساحق
           if [ -f "scripts/sign-file.c" ]; then
             echo 'int main(void) { return 0; }' > scripts/sign-file.c
           fi
@@ -82,7 +85,7 @@ jobs:
             echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c
           fi
 
-          # تنظيف ملف تكوين نوبيا المزعج للـ LEDs من الأحرف غير المدعومة
+          # تنظيف ملف تكوين نوبيا للـ LEDs
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
@@ -105,10 +108,10 @@ jobs:
           
           export PATH=$GITHUB_WORKSPACE/custom_bin:$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          # خطوة 1: توليد التكوين الأولي المستقر
+          # خطوة 1: توليد التكوين الأولي
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # خطوة 2: الصعق النهائي لخيارات الحماية والتوقيع داخل التكوين المولد وتفعيل KernelSU
+          # خطوة 2: تصفير خيارات توقيع الموديولات وحقن الكيرنال سو
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_MODULE_SIG/d' out/.config
           sed -i '/CONFIG_MODULE_SIG_ALL/d' out/.config
@@ -121,10 +124,10 @@ jobs:
           echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
 
-          # خطوة 3: تثبيت التكوين الجديد نهائياً بعد التعديل الصارم
+          # خطوة 3: تثبيت الإعدادات النهائية
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # خطوة 4: الانطلاق الفعلي ببناء ملف الكيرنال النهائي
+          # خطوة 4: الطبخ النهائي للكيرنال
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j$(nproc)
 
       - name: Upload Build Artifacts
