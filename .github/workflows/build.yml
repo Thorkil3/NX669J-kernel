@@ -34,25 +34,23 @@ jobs:
           fi
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
-      - name: Integrate Stable KernelSU Manually
+      - name: Inject KernelSU via Fast Submodule Clone
         run: |
           cd $GITHUB_WORKSPACE
           TARGET_DIR="."
           if [ -d "msm-5.4" ]; then TARGET_DIR="msm-5.4"; fi
           cd $TARGET_DIR
           
-          mkdir -p drivers/kernelsu
-          # استخدام نسخة مستقرة ومضمونة للـ KernelSU بدل الـ main لتفادي أخطاء البناء
-          curl -L https://github.com/tiann/KernelSU/archive/refs/tags/v0.9.5.zip -o ksu.zip
-          unzip -q ksu.zip
+          # مسح أي بقايا مجلدات قديمة لضمان النظافة المطلقة
+          rm -rf drivers/kernelsu
           
-          if [ -d "KernelSU-0.9.5" ]; then
-            mv KernelSU-0.9.5/* drivers/kernelsu/ || true
-            rm -rf KernelSU-0.9.5
-          fi
-          rm -f ksu.zip
+          # السحب المباشر والآمن عبر جيت لنسخة مستقرة لتجنب مشاكل فك الضغط الناقص للملفات
+          git clone https://github.com/tiann/KernelSU.git drivers/kernelsu
+          cd drivers/kernelsu
+          git checkout v0.9.5
+          cd ../..
 
-          # حقن نظيف داخل الـ Makefile الرئيسي للدرايفرات
+          # ربط المجلد بالـ Makefile الرئيسي للدرايفرات بشكل أصلي
           if [ -f "drivers/Makefile" ]; then
             sed -i '/kernelsu/d' drivers/Makefile
             echo "obj-y += kernelsu/" >> drivers/Makefile
@@ -62,7 +60,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           
-          # إنشاء مجلد الـ custom_bin لتخطي مشاكل الـ Linker للأبد
+          # إنشاء مجلد الـ custom_bin لتخطي مشاكل الـ Linker
           mkdir -p $GITHUB_WORKSPACE/custom_bin
           cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld.lld
           cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld
@@ -74,7 +72,7 @@ jobs:
 
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # تصفير ملفات التوقيع عشان نضمن استمرار تخطي الـ OpenSSL بنجاح ساحق
+          # تصفير ملفات التوقيع المسببة لمشاكل الـ OpenSSL القديمة
           if [ -f "scripts/sign-file.c" ]; then
             echo 'int main(void) { return 0; }' > scripts/sign-file.c
           fi
@@ -111,7 +109,7 @@ jobs:
           # خطوة 1: توليد التكوين الأولي
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # خطوة 2: تصفير خيارات توقيع الموديولات وحقن الكيرنال سو
+          # خطوة 2: تصفير خيارات الحماية وحقن معرف الـ KernelSU
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_MODULE_SIG/d' out/.config
           sed -i '/CONFIG_MODULE_SIG_ALL/d' out/.config
@@ -124,10 +122,10 @@ jobs:
           echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
 
-          # خطوة 3: تثبيت الإعدادات النهائية
+          # خطوة 3: تثبيت الإعدادات
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # خطوة 4: الطبخ النهائي للكيرنال
+          # خطوة 4: الطبخ الفعلي النهائي للكيرنال
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j$(nproc)
 
       - name: Upload Build Artifacts
