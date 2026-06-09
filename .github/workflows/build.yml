@@ -24,21 +24,23 @@ jobs:
 
       - name: Fetch Official Google Toolchains & Fix Linker Paths
         run: |
-          TOOLCHAINS_DIR="$RUNNER_WORKSPACE/kernel_toolchains"
-          mkdir -p $TOOLCHAINS_DIR/clang
-          mkdir -p $TOOLCHAINS_DIR/gcc64
-          mkdir -p $TOOLCHAINS_DIR/gcc32
+          # إنشاء مجلد الأدوات في مسار ثابت ومستقل تماماً داخل الـ Workspace الأساسي
+          mkdir -p $GITHUB_WORKSPACE/toolchains/clang
+          mkdir -p $GITHUB_WORKSPACE/toolchains/gcc64
+          mkdir -p $GITHUB_WORKSPACE/toolchains/gcc32
           
-          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $TOOLCHAINS_DIR/clang
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $TOOLCHAINS_DIR/gcc64
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $TOOLCHAINS_DIR/gcc32
+          # سحب المترجمات الرسمية المتوافقة
+          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/toolchains/clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/toolchains/gcc64
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $GITHUB_WORKSPACE/toolchains/gcc32
 
-          cd $TOOLCHAINS_DIR/gcc64/bin
+          # إصلاح رابط الـ Linker المفقود بالمسار المباشر
+          cd $GITHUB_WORKSPACE/toolchains/gcc64/bin
           if [ -f "../aarch64-linux-android/bin/ld" ]; then
             ln -sf ../aarch64-linux-android/bin/ld aarch64-linux-android-ld
           fi
           
-          cd $TOOLCHAINS_DIR/gcc32/bin
+          cd $GITHUB_WORKSPACE/toolchains/gcc32/bin
           if [ -f "../arm-linux-androideabi/bin/ld" ]; then
             ln -sf ../arm-linux-androideabi/bin/ld arm-linux-androideabi-ld
           fi
@@ -65,7 +67,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # تعطيل ملفات التشفير والتوقيع التي تسبب أخطاء ثانوية
+          # إحباط فحص ملفات الشهادات والتواقيع المكسورة للكود الأصلي للشركة
           if [ -f "scripts/sign-file.c" ]; then echo 'int main(void) { return 0; }' > scripts/sign-file.c; fi
           if [ -f "scripts/extract-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/extract-cert.c; fi
           if [ -f "scripts/insert-sys-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c; fi
@@ -75,7 +77,6 @@ jobs:
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
-          # البحث عن ملف التجهيز الأساسي
           CONF_PATH=""
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             CONF_PATH="arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig"
@@ -86,12 +87,11 @@ jobs:
           fi
 
           if [ ! -z "$CONF_PATH" ]; then
-            # تنظيف الميزات المتسببة في انهيار خطأ الـ الـ 12 دقيقة
+            # إغلاق أدوات الـ Debug المكسورة مسبقاً (KGDB والـ Atomics)
             sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' $CONF_PATH
             sed -i '/CONFIG_MODULE_SIG/d' $CONF_PATH
             sed -i '/CONFIG_KGDB/d' $CONF_PATH
             sed -i '/CONFIG_CRYPTO_DEV_QCOM_MSM_QCE/d' $CONF_PATH
-            sed -i '/CONFIG_HAVE_ARCH_BITREVERSE/d' $CONF_PATH
             
             echo "CONFIG_ARM64_LSE_ATOMICS=n" >> $CONF_PATH
             echo "CONFIG_MODULE_SIG=n" >> $CONF_PATH
@@ -104,19 +104,19 @@ jobs:
             cp $CONF_PATH out/.config
           fi
 
-      - name: Force Apply Defconfig Modifications & Safe Target Build
+      - name: Ultimate Safe Kernel Build Execution
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          TOOLCHAINS_DIR="$RUNNER_WORKSPACE/kernel_toolchains"
-          export PATH=$TOOLCHAINS_DIR/clang/bin:$TOOLCHAINS_DIR/gcc64/bin:$TOOLCHAINS_DIR/gcc32/bin:$PATH
+          # ربط دقيق بالمسار المطلق النظيف للـ Toolchains
+          export PATH=$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc64/bin:$GITHUB_WORKSPACE/toolchains/gcc32/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           
-          # توليد التجهيز المبدئي والافتراضي وتجريده من الـ KGDB والـ Debugging تماماً
           make ARCH=arm64 O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 olddefconfig
           
+          # حقن إعدادات الـ KernelSU وإغلاق توقيع الـ Modules لتفادي أخطاء الـ C اللاحقة
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' out/.config
           sed -i '/CONFIG_MODULE_SIG/d' out/.config
@@ -124,7 +124,6 @@ jobs:
           sed -i '/CONFIG_MODULE_SIG_FORCE/d' out/.config
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
           sed -i '/CONFIG_KGDB/d' out/.config
-          sed -i '/CONFIG_FORCE_PAGES/d' out/.config
           sed -i '/CONFIG_CRYPTO_DEV_QCOM_MSM_QCE/d' out/.config
           
           echo "CONFIG_KSU=y" >> out/.config
@@ -137,8 +136,6 @@ jobs:
           echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> out/.config
 
           make ARCH=arm64 O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 olddefconfig
-          
-          # إطلاق البناء الصافي النهائي مستخدمين كامل طاقة المعالجة المتاحة
           make ARCH=arm64 O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 -j$(nproc)
 
       - name: Upload Build Artifacts
