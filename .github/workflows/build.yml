@@ -18,15 +18,15 @@ jobs:
           fi
           rm -f kernel.zip
 
-      - name: Setup Safe Build Environment (Apt Fix)
+      - name: Setup Safe Build Environment
         run: |
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev
 
-      - name: Fetch Official Google Clang & GCC Toolchains
+      - name: Fetch Official Google Clang & GCC Toolchains via Git
         run: |
-          # 1. سحب الـ Clang التوافقي المستقر r418222b لـ Android 12/13
-          git clone --depth=1 -b ndk-r23-release https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang
+          # 1. سحب نسخة Clang الرسمية r418222b المخصصة لـ الكيرنال من جوجل
+          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang
           
           # 2. سحب الـ GCC المتقاطع الرسمي لـ 64-bit من جوجل
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
@@ -34,9 +34,11 @@ jobs:
           # 3. سحب الـ GCC المتقاطع الرسمي لـ 32-bit من جوجل
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $GITHUB_WORKSPACE/gcc32
 
-      - name: Inject KernelSU via Fast Submodule Clone
+      - name: Integrate KernelSU Manually
         run: |
           cd $GITHUB_WORKSPACE
+          
+          # التأكد من الدخول للمجلد الصحيح إذا كانت الملفات منبثقة بداخل msm-5.4
           TARGET_DIR="."
           if [ -d "msm-5.4" ]; then TARGET_DIR="msm-5.4"; fi
           cd $TARGET_DIR
@@ -52,23 +54,23 @@ jobs:
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
-      - name: Ultimate Code Patching & Defconfig Setup
+      - name: Fix Source Code & Force Inject Configurations
         run: |
           cd $GITHUB_WORKSPACE
-          
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # التخلص من التواقيع المشوهة للبناء تلقائياً
+          # التخلص من تواقيع الكود والشهادات المسببة للمشاكل أثناء البناء الآلي
           if [ -f "scripts/sign-file.c" ]; then echo 'int main(void) { return 0; }' > scripts/sign-file.c; fi
           if [ -f "scripts/extract-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/extract-cert.c; fi
           if [ -f "scripts/insert-sys-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c; fi
 
-          # تنظيف ملف Kconfig الخاص بالـ LED لضمان جودة التهيئة
+          # تنظيف ملف Kconfig التابع لـ nubia_led لتجنب أخطاء الرموز الغريبة
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
           fi
 
+          # تحديد مسار الـ defconfig وتجهيزه
           CONF_PATH=""
           if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
             CONF_PATH="arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig"
@@ -95,16 +97,18 @@ jobs:
             cp $CONF_PATH out/.config
           fi
 
-      - name: Pure Isolated Kernel Build Execution
+      - name: Ultimate Isolated Kernel Build Execution
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ربط المسارات بشكل معزول ومغلق بالاعتماد الكلي على حزم جوجل المضمونة
-          export PATH=$GITHUB_WORKSPACE/clean_bin:$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
+          # إعداد البيئة وتوصيل مترجمات جوجل المضمونة
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
           
-          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          # البناء الأولي للـ Config
+          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0
           
+          # فرض إعدادات الاستقرار وKernelSU داخل الـ .config النهائي
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' out/.config
           sed -i '/CONFIG_MODULE_SIG/d' out/.config
@@ -123,10 +127,11 @@ jobs:
           echo "CONFIG_KGDB=n" >> out/.config
           echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> out/.config
 
-          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          # تطبيق التعديلات النهائية
+          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0
           
-          # البناء بكامل طاقة السيرفر باستدعاء بيئة الكومبيلر النقية المعزولة لإنتاج الـ Image
-          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- -j$(nproc)
+          # تشغيل البناء الفعلي الكامل للكيرنال مع تعطيل الـ Integrated Assembler لحل مشاكل معمارية المعالج
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 -j$(nproc)
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
