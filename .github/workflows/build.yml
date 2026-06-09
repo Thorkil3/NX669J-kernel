@@ -24,17 +24,31 @@ jobs:
 
       - name: Fetch Official Google Clang & GCC Toolchains via Git
         run: |
-          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $GITHUB_WORKSPACE/gcc32
+          cd $GITHUB_WORKSPACE
+          # تحديد مجلد العمل الفعلي سواء في الجذر أو داخل msm-5.4
+          BASE_DIR=$GITHUB_WORKSPACE
+          if [ -d "msm-5.4" ]; then BASE_DIR="$GITHUB_WORKSPACE/msm-5.4"; fi
+          
+          mkdir -p $BASE_DIR/clang
+          mkdir -p $BASE_DIR/gcc64
+          mkdir -p $BASE_DIR/gcc32
+          
+          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $BASE_DIR/clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $BASE_DIR/gcc64
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $BASE_DIR/gcc32
 
       - name: Fix Toolchain Linker Paths (The Symlink Fix)
         run: |
-          cd $GITHUB_WORKSPACE/gcc64/bin
+          cd $GITHUB_WORKSPACE
+          BASE_DIR=$GITHUB_WORKSPACE
+          if [ -d "msm-5.4" ]; then BASE_DIR="$GITHUB_WORKSPACE/msm-5.4"; fi
+          
+          cd $BASE_DIR/gcc64/bin
           if [ -f "../aarch64-linux-android/bin/ld" ]; then
             ln -sf ../aarch64-linux-android/bin/ld aarch64-linux-android-ld
           fi
-          cd $GITHUB_WORKSPACE/gcc32/bin
+          
+          cd $BASE_DIR/gcc32/bin
           if [ -f "../arm-linux-androideabi/bin/ld" ]; then
             ln -sf ../arm-linux-androideabi/bin/ld arm-linux-androideabi-ld
           fi
@@ -44,4 +58,93 @@ jobs:
           cd $GITHUB_WORKSPACE
           TARGET_DIR="."
           if [ -d "msm-5.4" ]; then TARGET_DIR="msm-5.4"; fi
-          cd
+          cd $TARGET_DIR
+          
+          rm -rf drivers/kernelsu
+          git clone https://github.com/tiann/KernelSU.git drivers/kernelsu
+          cd drivers/kernelsu
+          git checkout v0.9.5
+          cd ../..
+          if [ -f "drivers/Makefile" ]; then
+            sed -i '/kernelsu/d' drivers/Makefile
+            echo "obj-y += kernelsu/" >> drivers/Makefile
+          fi
+
+      - name: Fix Source Code & Force Inject Configurations
+        run: |
+          cd $GITHUB_WORKSPACE
+          if [ -d "msm-5.4" ]; then cd msm-5.4; fi
+
+          if [ -f "scripts/sign-file.c" ]; then echo 'int main(void) { return 0; }' > scripts/sign-file.c; fi
+          if [ -f "scripts/extract-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/extract-cert.c; fi
+          if [ -f "scripts/insert-sys-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c; fi
+
+          if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
+            tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
+            mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
+          fi
+
+          CONF_PATH=""
+          if [ -f "arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig" ]; then
+            CONF_PATH="arch/arm64/configs/vendor/lahaina-qgki-perf_defconfig"
+          elif [ -f "arch/arm64/configs/lahaina-perf_defconfig" ]; then
+            CONF_PATH="arch/arm64/configs/lahaina-perf_defconfig"
+          elif [ -f "arch/arm64/configs/lahaina_defconfig" ]; then
+            CONF_PATH="arch/arm64/configs/lahaina_defconfig"
+          fi
+
+          if [ ! -z "$CONF_PATH" ]; then
+            sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' $CONF_PATH
+            sed -i '/CONFIG_MODULE_SIG/d' $CONF_PATH
+            sed -i '/CONFIG_KGDB/d' $CONF_PATH
+            sed -i '/CONFIG_CRYPTO_DEV_QCOM_MSM_QCE/d' $CONF_PATH
+            
+            echo "CONFIG_ARM64_LSE_ATOMICS=n" >> $CONF_PATH
+            echo "CONFIG_MODULE_SIG=n" >> $CONF_PATH
+            echo "CONFIG_KGDB=n" >> $CONF_PATH
+            echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> $CONF_PATH
+          fi
+
+          mkdir -p out
+          if [ ! -z "$CONF_PATH" ]; then
+            cp $CONF_PATH out/.config
+          fi
+
+      - name: Ultimate Safe Kernel Build Execution
+        run: |
+          cd $GITHUB_WORKSPACE
+          BASE_DIR=$GITHUB_WORKSPACE
+          if [ -d "msm-5.4" ]; then BASE_DIR="$GITHUB_WORKSPACE/msm-5.4"; cd msm-5.4; fi
+          
+          export PATH=$BASE_DIR/clang/bin:$BASE_DIR/gcc64/bin:$BASE_DIR/gcc32/bin:$PATH
+          export ARCH=arm64
+          export SUBARCH=arm64
+          
+          make ARCH=arm64 O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 olddefconfig
+          
+          sed -i '/CONFIG_KSU/d' out/.config
+          sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' out/.config
+          sed -i '/CONFIG_MODULE_SIG/d' out/.config
+          sed -i '/CONFIG_MODULE_SIG_ALL/d' out/.config
+          sed -i '/CONFIG_MODULE_SIG_FORCE/d' out/.config
+          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
+          sed -i '/CONFIG_KGDB/d' out/.config
+          sed -i '/CONFIG_CRYPTO_DEV_QCOM_MSM_QCE/d' out/.config
+          
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_ARM64_LSE_ATOMICS=n" >> out/.config
+          echo "CONFIG_MODULE_SIG=n" >> out/.config
+          echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
+          echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
+          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
+          echo "CONFIG_KGDB=n" >> out/.config
+          echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> out/.config
+
+          make ARCH=arm64 O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 olddefconfig
+          make ARCH=arm64 O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 -j$(nproc)
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel_Image_with_KernelSU
+          path: "**/out/arch/arm64/boot/Image"
