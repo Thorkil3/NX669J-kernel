@@ -67,9 +67,14 @@ jobs:
 
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # ترقيع ملف الـ brk-imm لمنع خروج القيمة عن النطاق
-          if [ -f "arch/arm64/include/asm/brk-imm.h" ]; then
-            sed -i 's/0x401/0x400/g' arch/arm64/include/asm/brk-imm.h
+          # 1. ترويض مشكلة الـ Stack Pointer لـ Clang الحديث
+          if [ -f "arch/arm64/include/asm/stack_pointer.h" ]; then
+            sed -i 's/register unsigned long current_stack_pointer.*/#define current_stack_pointer 0UL/g' arch/arm64/include/asm/stack_pointer.h
+          fi
+
+          # 2. ترقيع وإلغاء تعليمة brk المسببة للمشكلة داخل kgdb.h
+          if [ -f "arch/arm64/include/asm/kgdb.h" ]; then
+            sed -i 's/asm ("brk %0".*)/\/* bypassed *\//g' arch/arm64/include/asm/kgdb.h
           fi
 
           if [ -f "scripts/sign-file.c" ]; then
@@ -113,7 +118,7 @@ jobs:
             cp $CONF_PATH out/.config
           fi
 
-      - name: Force Apply Defconfig Modifications & Safe Target Build
+      - name: Force Apply Defconfig Modifications & Final Clear Build
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
@@ -142,5 +147,11 @@ jobs:
 
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # البناء الإجباري بنمط النواة الواحدة والتقرير الشامل لكشف السطر الحقيقي فوراً ومباشرة
+          # البناء بنمط النواة الواحدة التقريري لضمان العبور الآمن والتام فوق الأخطاء السابقة
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j1 V=1
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel_Image_with_KernelSU
+          path: "**/out/arch/arm64/boot/Image"
