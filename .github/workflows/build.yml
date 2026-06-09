@@ -25,10 +25,23 @@ jobs:
 
       - name: Fetch Official Google Clang & GCC Toolchains via Git
         run: |
-          # سحب المترجمات الرسمية المتوافقة مع كيرنال 5.4 من جوجل
+          # سحب المترجمات الرسمية المعتمدة لكيرنال 5.4 من جوجل
           git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $GITHUB_WORKSPACE/gcc32
+
+      - name: Fix Toolchain Linker Paths (The Symlink Fix)
+        run: |
+          # حل معضلة الـ Linker missing عن طريق صناعة روابط رمزية مباشرة في مجلد الـ bin الرئيسي
+          cd $GITHUB_WORKSPACE/gcc64/bin
+          if [ -f "../aarch64-linux-android/bin/ld" ]; then
+            ln -sf ../aarch64-linux-android/bin/ld aarch64-linux-android-ld
+          fi
+          
+          cd $GITHUB_WORKSPACE/gcc32/bin
+          if [ -f "../arm-linux-androideabi/bin/ld" ]; then
+            ln -sf ../arm-linux-androideabi/bin/ld arm-linux-androideabi-ld
+          fi
 
       - name: Integrate KernelSU Manually
         run: |
@@ -53,12 +66,12 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # تعطيل ملفات التوقيع والحماية التي تسبب أخطاء أثناء البناء
+          # التخلص من ملفات الحماية والتوقيع لتجنب أي إخفاق أثناء التجميع
           if [ -f "scripts/sign-file.c" ]; then echo 'int main(void) { return 0; }' > scripts/sign-file.c; fi
           if [ -f "scripts/extract-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/extract-cert.c; fi
           if [ -f "scripts/insert-sys-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c; fi
 
-          # تنظيف ملفات الكود من الرموز الغريبة (مثل مشكلة متحكم الإضاءة Nubia LED)
+          # تنظيف ملف Kconfig الخاص بإضاءة النوبيا من الرموز العشوائية
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
@@ -95,35 +108,25 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # إعداد المسارات المطلقة الصارمة لضمان رؤية النظام للينكر والمترجمات
+          # تصدير المسارات لتشمل مجلدات المترجمات بعد التعديل الرمزي
           export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
           
           export ARCH=arm64
           export SUBARCH=arm64
           
-          # تعريف أدوات المترجم المباشرة لـ Kconfig
-          export CC=clang
-          export LD=aarch64-linux-android-ld
-          export AR=aarch64-linux-android-ar
-          export OBJCOPY=aarch64-linux-android-objcopy
-          export OBJDUMP=aarch64-linux-android-objdump
-          export STRIP=aarch64-linux-android-strip
-          
-          # عوامل تجميع الكيرنال الأساسية لـ Qualcomm Snapdragon 888 (Lahaina)
+          # إعداد متغيرات البناء المباشرة لتفادي بحث نظام الـ make في البيئة الخارجية
           BUILD_ARGS="ARCH=arm64 \
                       O=out \
                       CC=clang \
                       CLANG_TRIPLE=aarch64-linux-gnu- \
                       CROSS_COMPILE=aarch64-linux-android- \
                       CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-                      LD=aarch64-linux-android-ld \
-                      AR=aarch64-linux-android-ar \
                       LLVM_IAS=0"
 
-          # توليد وتحديث ملف الإعدادات مع تمرير المتغيرات كاملة لمنع سقوط الـ Linker
+          # توليد الـ Config الأولي المستقر
           make $BUILD_ARGS olddefconfig
           
-          # حقن إعدادات النواة ودعم KernelSU
+          # حقن ثوابت الاستقرار وتهيئة دعم KernelSU
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' out/.config
           sed -i '/CONFIG_MODULE_SIG/d' out/.config
@@ -142,14 +145,14 @@ jobs:
           echo "CONFIG_KGDB=n" >> out/.config
           echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> out/.config
 
-          # تطبيق الإعدادات النهائية بعد الحقن
+          # مراجعة نهائية للإعدادات للتأكد من قفل الحزم المسببة للمشاكل
           make $BUILD_ARGS olddefconfig
           
-          # بدء البناء الفعلي بكامل طاقة المعالج
+          # إطلاق التجميع الشامل للكيرنال بكامل طاقة أنوية الـ Runner
           make $BUILD_ARGS -j$(nproc)
 
       - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
+        uses: uses: actions/upload-artifact@v4
         with:
           name: Kernel_Image_with_KernelSU
           path: "**/out/arch/arm64/boot/Image"
