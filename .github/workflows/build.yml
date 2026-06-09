@@ -24,26 +24,19 @@ jobs:
 
       - name: Fetch Official Google Toolchains & Fix Linker Paths
         run: |
-          # إنشاء مجلد الأدوات في مسار ثابت ومستقل تماماً داخل الـ Workspace الأساسي
-          mkdir -p $GITHUB_WORKSPACE/toolchains/clang
-          mkdir -p $GITHUB_WORKSPACE/toolchains/gcc64
-          mkdir -p $GITHUB_WORKSPACE/toolchains/gcc32
+          # إنشاء مجلد الأدوات في مسار خارجي ومستقل تماماً عن مجلد العمل لتفادي التكرار
+          mkdir -p /home/runner/toolchains/clang
+          mkdir -p /home/runner/toolchains/gcc64
+          mkdir -p /home/runner/toolchains/gcc32
           
-          # سحب المترجمات الرسمية المتوافقة
-          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/toolchains/clang
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/toolchains/gcc64
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $GITHUB_WORKSPACE/toolchains/gcc32
+          # سحب المترجمات الرسمية
+          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 /home/runner/toolchains/clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 /home/runner/toolchains/gcc64
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 /home/runner/toolchains/gcc32
 
-          # إصلاح رابط الـ Linker المفقود بالمسار المباشر
-          cd $GITHUB_WORKSPACE/toolchains/gcc64/bin
-          if [ -f "../aarch64-linux-android/bin/ld" ]; then
-            ln -sf ../aarch64-linux-android/bin/ld aarch64-linux-android-ld
-          fi
-          
-          cd $GITHUB_WORKSPACE/toolchains/gcc32/bin
-          if [ -f "../arm-linux-androideabi/bin/ld" ]; then
-            ln -sf ../arm-linux-androideabi/bin/ld arm-linux-androideabi-ld
-          fi
+          # إصلاح روابط الـ Linker باستخدام مسارات مطلقة وصارمة
+          ln -sf /home/runner/toolchains/gcc64/aarch64-linux-android/bin/ld /home/runner/toolchains/gcc64/bin/aarch64-linux-android-ld
+          ln -sf /home/runner/toolchains/gcc32/arm-linux-androideabi/bin/ld /home/runner/toolchains/gcc32/bin/arm-linux-androideabi-ld
 
       - name: Integrate KernelSU Manually
         run: |
@@ -67,7 +60,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # إحباط فحص ملفات الشهادات والتواقيع المكسورة للكود الأصلي للشركة
+          # تعطيل فحص الشهادات والتواقيع المكسورة في الكود المصدري للشركة
           if [ -f "scripts/sign-file.c" ]; then echo 'int main(void) { return 0; }' > scripts/sign-file.c; fi
           if [ -f "scripts/extract-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/extract-cert.c; fi
           if [ -f "scripts/insert-sys-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c; fi
@@ -87,7 +80,7 @@ jobs:
           fi
 
           if [ ! -z "$CONF_PATH" ]; then
-            # إغلاق أدوات الـ Debug المكسورة مسبقاً (KGDB والـ Atomics)
+            # إلغاء الخصائص التي تسبب انهيار المترجم (Atomics و KGDB)
             sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' $CONF_PATH
             sed -i '/CONFIG_MODULE_SIG/d' $CONF_PATH
             sed -i '/CONFIG_KGDB/d' $CONF_PATH
@@ -109,14 +102,14 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ربط دقيق بالمسار المطلق النظيف للـ Toolchains
-          export PATH=$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc64/bin:$GITHUB_WORKSPACE/toolchains/gcc32/bin:$PATH
+          # ربط صارم ومباشر بالمسار المطلق الجديد للـ Toolchains
+          export PATH=/home/runner/toolchains/clang/bin:/home/runner/toolchains/gcc64/bin:/home/runner/toolchains/gcc32/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           
           make ARCH=arm64 O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 olddefconfig
           
-          # حقن إعدادات الـ KernelSU وإغلاق توقيع الـ Modules لتفادي أخطاء الـ C اللاحقة
+          # تأكيد حقن إعدادات الـ KernelSU وإلغاء أدوات الـ Debug والميزات المكسورة
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' out/.config
           sed -i '/CONFIG_MODULE_SIG/d' out/.config
