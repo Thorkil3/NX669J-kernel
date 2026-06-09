@@ -77,6 +77,12 @@ jobs:
             sed -i 's/asm ("brk %0".*)/\/* bypassed *\//g' arch/arm64/include/asm/kgdb.h
           fi
 
+          # 3. إيقاف بناء الـ vDSO المتعارض مع Clang الحديث في الـ Makefile الرئيسي لـ arm64
+          if [ -f "arch/arm64/Makefile" ]; then
+            sed -i 's/vdso_prepare//g' arch/arm64/Makefile
+            sed -i 's/vdso//g' arch/arm64/Makefile
+          fi
+
           if [ -f "scripts/sign-file.c" ]; then
             echo 'int main(void) { return 0; }' > scripts/sign-file.c
           fi
@@ -106,11 +112,13 @@ jobs:
             sed -i '/CONFIG_MODULE_SIG/d' $CONF_PATH
             sed -i '/CONFIG_KGDB/d' $CONF_PATH
             sed -i '/CONFIG_CRYPTO_DEV_QCOM_MSM_QCE/d' $CONF_PATH
+            sed -i '/CONFIG_VDSO/d' $CONF_PATH
             
             echo "CONFIG_ARM64_LSE_ATOMICS=n" >> $CONF_PATH
             echo "CONFIG_MODULE_SIG=n" >> $CONF_PATH
             echo "CONFIG_KGDB=n" >> $CONF_PATH
             echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> $CONF_PATH
+            echo "CONFIG_VDSO=n" >> $CONF_PATH
           fi
 
           mkdir -p out
@@ -135,6 +143,7 @@ jobs:
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
           sed -i '/CONFIG_KGDB/d' out/.config
           sed -i '/CONFIG_CRYPTO_DEV_QCOM_MSM_QCE/d' out/.config
+          sed -i '/CONFIG_VDSO/d' out/.config
           
           echo "CONFIG_KSU=y" >> out/.config
           echo "CONFIG_ARM64_LSE_ATOMICS=n" >> out/.config
@@ -144,10 +153,11 @@ jobs:
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
           echo "CONFIG_KGDB=n" >> out/.config
           echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> out/.config
+          echo "CONFIG_VDSO=n" >> out/.config
 
           make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # البناء بنمط النواة الواحدة التقريري لضمان العبور الآمن والتام فوق الأخطاء السابقة
+          # البناء بنمط النواة الواحدة والتقرير الشامل لضمان الثبات التام وتخطي الـ vDSO
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j1 V=1
 
       - name: Upload Build Artifacts
