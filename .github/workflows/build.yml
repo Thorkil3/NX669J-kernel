@@ -24,24 +24,23 @@ jobs:
 
       - name: Fetch Official Google Toolchains & Fix Linker Paths
         run: |
-          cd $GITHUB_WORKSPACE
-          # إنشاء مجلد موحد للمترجمات داخل الـ Workspace لضمان الحفاظ على الصلاحيات
-          mkdir -p $GITHUB_WORKSPACE/toolchains/clang
-          mkdir -p $GITHUB_WORKSPACE/toolchains/gcc64
-          mkdir -p $GITHUB_WORKSPACE/toolchains/gcc32
+          # استخدام مسار الـ Runner المطلق لمنع تكرار أسماء المجلدات نهائياً
+          TOOLCHAINS_DIR="$RUNNER_WORKSPACE/kernel_toolchains"
+          mkdir -p $TOOLCHAINS_DIR/clang
+          mkdir -p $TOOLCHAINS_DIR/gcc64
+          mkdir -p $TOOLCHAINS_DIR/gcc32
           
-          # سحب المترجمات الرسمية المستقرة متوافقة بالملي مع كيرنال 5.4
-          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/toolchains/clang
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/toolchains/gcc64
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $GITHUB_WORKSPACE/toolchains/gcc32
+          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $TOOLCHAINS_DIR/clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $TOOLCHAINS_DIR/gcc64
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $TOOLCHAINS_DIR/gcc32
 
-          # إصلاح معضلة الـ Linker missing فوراً في نفس الخطوة والمكان
-          cd $GITHUB_WORKSPACE/toolchains/gcc64/bin
+          # تطبيق حل الـ Linker مباشرة بالمسار المطلق الجديد
+          cd $TOOLCHAINS_DIR/gcc64/bin
           if [ -f "../aarch64-linux-android/bin/ld" ]; then
             ln -sf ../aarch64-linux-android/bin/ld aarch64-linux-android-ld
           fi
           
-          cd $GITHUB_WORKSPACE/toolchains/gcc32/bin
+          cd $TOOLCHAINS_DIR/gcc32/bin
           if [ -f "../arm-linux-androideabi/bin/ld" ]; then
             ln -sf ../arm-linux-androideabi/bin/ld arm-linux-androideabi-ld
           fi
@@ -108,8 +107,9 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ربط النظام بالمسار المحمي والثابت الجديد داخل الـ Workspace
-          export PATH=$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc64/bin:$GITHUB_WORKSPACE/toolchains/gcc32/bin:$PATH
+          # استدعاء المترجمات من مسار الـ Runner المطلق النظيف
+          TOOLCHAINS_DIR="$RUNNER_WORKSPACE/kernel_toolchains"
+          export PATH=$TOOLCHAINS_DIR/clang/bin:$TOOLCHAINS_DIR/gcc64/bin:$TOOLCHAINS_DIR/gcc32/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           
