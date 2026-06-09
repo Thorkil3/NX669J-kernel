@@ -24,19 +24,33 @@ jobs:
 
       - name: Fetch Official Google Toolchains & Fix Linker Paths
         run: |
-          # إنشاء مجلد الأدوات في مسار خارجي ومستقل تماماً عن مجلد العمل لتفادي التكرار
+          # إنشاء بيئة مستقلة تماماً للمترجمات
+          rm -rf /home/runner/toolchains
           mkdir -p /home/runner/toolchains/clang
           mkdir -p /home/runner/toolchains/gcc64
           mkdir -p /home/runner/toolchains/gcc32
           
-          # سحب المترجمات الرسمية
+          # سحب الأدوات الرسمية المتوافقة
           git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 /home/runner/toolchains/clang
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 /home/runner/toolchains/gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 /home/runner/toolchains/gcc32
 
-          # إصلاح روابط الـ Linker باستخدام مسارات مطلقة وصارمة
-          ln -sf /home/runner/toolchains/gcc64/aarch64-linux-android/bin/ld /home/runner/toolchains/gcc64/bin/aarch64-linux-android-ld
-          ln -sf /home/runner/toolchains/gcc32/arm-linux-androideabi/bin/ld /home/runner/toolchains/gcc32/bin/arm-linux-androideabi-ld
+          # تأمين وإنشاء مجلدات الـ bin الداخلية لتفادي خطأ الـ No such file or directory
+          mkdir -p /home/runner/toolchains/gcc64/bin
+          mkdir -p /home/runner/toolchains/gcc32/bin
+
+          # بناء الروابط الرمزية المطلقة بذكاء وحصانة
+          if [ -f "/home/runner/toolchains/gcc64/aarch64-linux-android/bin/ld" ]; then
+            ln -sf /home/runner/toolchains/gcc64/aarch64-linux-android/bin/ld /home/runner/toolchains/gcc64/bin/aarch64-linux-android-ld
+          elif [ -f "/home/runner/toolchains/gcc64/bin/aarch64-linux-android-ld.bfd" ]; then
+            ln -sf /home/runner/toolchains/gcc64/bin/aarch64-linux-android-ld.bfd /home/runner/toolchains/gcc64/bin/aarch64-linux-android-ld
+          fi
+          
+          if [ -f "/home/runner/toolchains/gcc32/arm-linux-androideabi/bin/ld" ]; then
+            ln -sf /home/runner/toolchains/gcc32/arm-linux-androideabi/bin/ld /home/runner/toolchains/gcc32/bin/arm-linux-androideabi-ld
+          elif [ -f "/home/runner/toolchains/gcc32/bin/arm-linux-androideabi-ld.bfd" ]; then
+            ln -sf /home/runner/toolchains/gcc32/bin/arm-linux-androideabi-ld.bfd /home/runner/toolchains/gcc32/bin/arm-linux-androideabi-ld
+          fi
 
       - name: Integrate KernelSU Manually
         run: |
@@ -60,7 +74,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # تعطيل فحص الشهادات والتواقيع المكسورة في الكود المصدري للشركة
+          # إجهاض فحص التواقيع المكسورة لكود الشركة
           if [ -f "scripts/sign-file.c" ]; then echo 'int main(void) { return 0; }' > scripts/sign-file.c; fi
           if [ -f "scripts/extract-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/extract-cert.c; fi
           if [ -f "scripts/insert-sys-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c; fi
@@ -80,7 +94,7 @@ jobs:
           fi
 
           if [ ! -z "$CONF_PATH" ]; then
-            # إلغاء الخصائص التي تسبب انهيار المترجم (Atomics و KGDB)
+            # تنظيف مسبق لميزات الانهيار (KGDB والـ Debug) لتجنب أخطاء الدقيقة 12
             sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' $CONF_PATH
             sed -i '/CONFIG_MODULE_SIG/d' $CONF_PATH
             sed -i '/CONFIG_KGDB/d' $CONF_PATH
@@ -102,14 +116,14 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ربط صارم ومباشر بالمسار المطلق الجديد للـ Toolchains
+          # ربط نهائي ومباشر بالبيئة المستقرة
           export PATH=/home/runner/toolchains/clang/bin:/home/runner/toolchains/gcc64/bin:/home/runner/toolchains/gcc32/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           
           make ARCH=arm64 O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- LLVM_IAS=0 olddefconfig
           
-          # تأكيد حقن إعدادات الـ KernelSU وإلغاء أدوات الـ Debug والميزات المكسورة
+          # تأكيد حقن التجهيزات وإغلاق الثغرات البرمجية في الكود
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' out/.config
           sed -i '/CONFIG_MODULE_SIG/d' out/.config
