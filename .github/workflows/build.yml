@@ -22,27 +22,26 @@ jobs:
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev
 
-      - name: Fetch Official Google Clang & GCC Toolchains (Isolated Path)
+      - name: Fetch Official Google Toolchains & Fix Linker Paths
         run: |
-          # إنشاء مسار معزول وثابت تماماً خارج مجلدات الكود لمنع أخطاء المسارات
-          sudo mkdir -p /opt/toolchains/clang
-          sudo mkdir -p /opt/toolchains/gcc64
-          sudo mkdir -p /opt/toolchains/gcc32
-          sudo chown -R runner:runner /opt/toolchains
+          cd $GITHUB_WORKSPACE
+          # إنشاء مجلد موحد للمترجمات داخل الـ Workspace لضمان الحفاظ على الصلاحيات
+          mkdir -p $GITHUB_WORKSPACE/toolchains/clang
+          mkdir -p $GITHUB_WORKSPACE/toolchains/gcc64
+          mkdir -p $GITHUB_WORKSPACE/toolchains/gcc32
           
-          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 /opt/toolchains/clang
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 /opt/toolchains/gcc64
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 /opt/toolchains/gcc32
+          # سحب المترجمات الرسمية المستقرة متوافقة بالملي مع كيرنال 5.4
+          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/toolchains/clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/toolchains/gcc64
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $GITHUB_WORKSPACE/toolchains/gcc32
 
-      - name: Fix Toolchain Linker Paths (The Symlink Fix)
-        run: |
-          # حل مشكلة linker not found في المسار الثابت الجديد
-          cd /opt/toolchains/gcc64/bin
+          # إصلاح معضلة الـ Linker missing فوراً في نفس الخطوة والمكان
+          cd $GITHUB_WORKSPACE/toolchains/gcc64/bin
           if [ -f "../aarch64-linux-android/bin/ld" ]; then
             ln -sf ../aarch64-linux-android/bin/ld aarch64-linux-android-ld
           fi
           
-          cd /opt/toolchains/gcc32/bin
+          cd $GITHUB_WORKSPACE/toolchains/gcc32/bin
           if [ -f "../arm-linux-androideabi/bin/ld" ]; then
             ln -sf ../arm-linux-androideabi/bin/ld arm-linux-androideabi-ld
           fi
@@ -109,8 +108,8 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          # ربط النظام بالمسار الثابت والمحمي الجديد للمترجمات
-          export PATH=/opt/toolchains/clang/bin:/opt/toolchains/gcc64/bin:/opt/toolchains/gcc32/bin:$PATH
+          # ربط النظام بالمسار المحمي والثابت الجديد داخل الـ Workspace
+          export PATH=$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc64/bin:$GITHUB_WORKSPACE/toolchains/gcc32/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           
