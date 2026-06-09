@@ -22,33 +22,27 @@ jobs:
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev
 
-      - name: Fetch Official Google Clang & GCC Toolchains via Git
+      - name: Fetch Official Google Clang & GCC Toolchains (Isolated Path)
         run: |
-          cd $GITHUB_WORKSPACE
-          # تحديد مجلد العمل الفعلي سواء في الجذر أو داخل msm-5.4
-          BASE_DIR=$GITHUB_WORKSPACE
-          if [ -d "msm-5.4" ]; then BASE_DIR="$GITHUB_WORKSPACE/msm-5.4"; fi
+          # إنشاء مسار معزول وثابت تماماً خارج مجلدات الكود لمنع أخطاء المسارات
+          sudo mkdir -p /opt/toolchains/clang
+          sudo mkdir -p /opt/toolchains/gcc64
+          sudo mkdir -p /opt/toolchains/gcc32
+          sudo chown -R runner:runner /opt/toolchains
           
-          mkdir -p $BASE_DIR/clang
-          mkdir -p $BASE_DIR/gcc64
-          mkdir -p $BASE_DIR/gcc32
-          
-          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $BASE_DIR/clang
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $BASE_DIR/gcc64
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $BASE_DIR/gcc32
+          git clone --depth=1 -b master-kernel-build-2022 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 /opt/toolchains/clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 /opt/toolchains/gcc64
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 /opt/toolchains/gcc32
 
       - name: Fix Toolchain Linker Paths (The Symlink Fix)
         run: |
-          cd $GITHUB_WORKSPACE
-          BASE_DIR=$GITHUB_WORKSPACE
-          if [ -d "msm-5.4" ]; then BASE_DIR="$GITHUB_WORKSPACE/msm-5.4"; fi
-          
-          cd $BASE_DIR/gcc64/bin
+          # حل مشكلة linker not found في المسار الثابت الجديد
+          cd /opt/toolchains/gcc64/bin
           if [ -f "../aarch64-linux-android/bin/ld" ]; then
             ln -sf ../aarch64-linux-android/bin/ld aarch64-linux-android-ld
           fi
           
-          cd $BASE_DIR/gcc32/bin
+          cd /opt/toolchains/gcc32/bin
           if [ -f "../arm-linux-androideabi/bin/ld" ]; then
             ln -sf ../arm-linux-androideabi/bin/ld arm-linux-androideabi-ld
           fi
@@ -113,10 +107,10 @@ jobs:
       - name: Ultimate Safe Kernel Build Execution
         run: |
           cd $GITHUB_WORKSPACE
-          BASE_DIR=$GITHUB_WORKSPACE
-          if [ -d "msm-5.4" ]; then BASE_DIR="$GITHUB_WORKSPACE/msm-5.4"; cd msm-5.4; fi
+          if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          export PATH=$BASE_DIR/clang/bin:$BASE_DIR/gcc64/bin:$BASE_DIR/gcc32/bin:$PATH
+          # ربط النظام بالمسار الثابت والمحمي الجديد للمترجمات
+          export PATH=/opt/toolchains/clang/bin:/opt/toolchains/gcc64/bin:/opt/toolchains/gcc32/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           
