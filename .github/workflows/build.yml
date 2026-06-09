@@ -18,27 +18,21 @@ jobs:
           fi
           rm -f kernel.zip
 
-      - name: Setup Build Environment & Install Tools
+      - name: Setup Safe Build Environment (Apt Fix)
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev
 
-      - name: Fetch Compatible Android Clang 12 (r418222b) via Git
+      - name: Fetch Official Google Clang & GCC Toolchains
         run: |
-          # سحب النسخة التوافقية المستقرة لكيرنالات msm-5.4 بدلاً من النسخة الأحدث لـ Main
-          git clone --depth=1 -b ndk-r23-release https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt || git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
-          mkdir -p $GITHUB_WORKSPACE/clang
+          # 1. سحب الـ Clang التوافقي المستقر r418222b لـ Android 12/13
+          git clone --depth=1 -b ndk-r23-release https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang
           
-          # البحث عن النسخة r418222b أو المتاحة المتوافقة ونقلها لبيئة العمل
-          if [ -d "$GITHUB_WORKSPACE/clang-prebuilt/clang-r418222b" ]; then
-            mv $GITHUB_WORKSPACE/clang-prebuilt/clang-r418222b/* $GITHUB_WORKSPACE/clang/
-          elif [ -d "$GITHUB_WORKSPACE/clang-prebuilt/clang-r383902" ]; then
-            mv $GITHUB_WORKSPACE/clang-prebuilt/clang-r383902/* $GITHUB_WORKSPACE/clang/
-          else
-            # في حال عدم وجود الفروع السابقة، يتم أخذ النسخة المستقرة التوافقية المتوفرة
-            find $GITHUB_WORKSPACE/clang-prebuilt/ -maxdepth 1 -type d -name "clang-r*" -exec mv {}/* $GITHUB_WORKSPACE/clang/ \; 2>/dev/null || true
-          fi
-          rm -rf $GITHUB_WORKSPACE/clang-prebuilt
+          # 2. سحب الـ GCC المتقاطع الرسمي لـ 64-bit من جوجل
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $GITHUB_WORKSPACE/gcc64
+          
+          # 3. سحب الـ GCC المتقاطع الرسمي لـ 32-bit من جوجل
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $GITHUB_WORKSPACE/gcc32
 
       - name: Inject KernelSU via Fast Submodule Clone
         run: |
@@ -58,25 +52,18 @@ jobs:
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
-      - name: Ultimate Safe Code Patching & Env Setup
+      - name: Ultimate Code Patching & Defconfig Setup
         run: |
           cd $GITHUB_WORKSPACE
           
-          # التجهيز للمترجم والروابط التوافقية
-          mkdir -p $GITHUB_WORKSPACE/custom_bin
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld.lld || true
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld || true
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-gnu-ld || true
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-android-ld || true
-
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # التخلص من التواقيع والشهادات المسببة للمشاكل
+          # التخلص من التواقيع المشوهة للبناء تلقائياً
           if [ -f "scripts/sign-file.c" ]; then echo 'int main(void) { return 0; }' > scripts/sign-file.c; fi
           if [ -f "scripts/extract-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/extract-cert.c; fi
           if [ -f "scripts/insert-sys-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c; fi
 
-          # تنظيف ملف الكود الغريب لمعرفات الـ LED من نوبيا لضمان عدم توقف البناء
+          # تنظيف ملف Kconfig الخاص بالـ LED لضمان جودة التهيئة
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
@@ -108,15 +95,15 @@ jobs:
             cp $CONF_PATH out/.config
           fi
 
-      - name: Execute Defconfig Setup & Compliant Toolchain Build
+      - name: Pure Isolated Kernel Build Execution
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
-          export PATH=$GITHUB_WORKSPACE/custom_bin:$GITHUB_WORKSPACE/clang/bin:$PATH
+          # ربط المسارات بشكل معزول ومغلق بالاعتماد الكلي على حزم جوجل المضمونة
+          export PATH=$GITHUB_WORKSPACE/clean_bin:$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc64/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
           
-          # البناء باستخدام مترجم الـ Assembly التوافقي والتقليدي لـ GCC الخارجي لحل مشكلة الماكرو نهائياً
-          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-
           
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' out/.config
@@ -136,10 +123,10 @@ jobs:
           echo "CONFIG_KGDB=n" >> out/.config
           echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> out/.config
 
-          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-
           
-          # البناء المتوازي الفعلي والنهائي المستقر
-          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- -j$(nproc)
+          # البناء بكامل طاقة السيرفر باستدعاء بيئة الكومبيلر النقية المعزولة لإنتاج الـ Image
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- -j$(nproc)
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
