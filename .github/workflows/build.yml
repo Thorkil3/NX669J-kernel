@@ -18,19 +18,25 @@ jobs:
           fi
           rm -f kernel.zip
 
-      - name: Setup Build Environment & Install LLVM Tools
+      - name: Setup Build Environment & Install Tools
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev lld llvm libssl-dev pkg-config libmpc-dev libmpfr-dev libgmp-dev gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-      - name: Fetch Official Clang Toolchain via Git
+      - name: Fetch Compatible Android Clang 12 (r418222b) via Git
         run: |
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
+          # سحب النسخة التوافقية المستقرة لكيرنالات msm-5.4 بدلاً من النسخة الأحدث لـ Main
+          git clone --depth=1 -b ndk-r23-release https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt || git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $GITHUB_WORKSPACE/clang-prebuilt
           mkdir -p $GITHUB_WORKSPACE/clang
+          
+          # البحث عن النسخة r418222b أو المتاحة المتوافقة ونقلها لبيئة العمل
           if [ -d "$GITHUB_WORKSPACE/clang-prebuilt/clang-r418222b" ]; then
             mv $GITHUB_WORKSPACE/clang-prebuilt/clang-r418222b/* $GITHUB_WORKSPACE/clang/
-          elif [ -d "$GITHUB_WORKSPACE/clang-prebuilt/clang-stable" ]; then
-            mv $GITHUB_WORKSPACE/clang-prebuilt/clang-stable/* $GITHUB_WORKSPACE/clang/
+          elif [ -d "$GITHUB_WORKSPACE/clang-prebuilt/clang-r383902" ]; then
+            mv $GITHUB_WORKSPACE/clang-prebuilt/clang-r383902/* $GITHUB_WORKSPACE/clang/
+          else
+            # في حال عدم وجود الفروع السابقة، يتم أخذ النسخة المستقرة التوافقية المتوفرة
+            find $GITHUB_WORKSPACE/clang-prebuilt/ -maxdepth 1 -type d -name "clang-r*" -exec mv {}/* $GITHUB_WORKSPACE/clang/ \; 2>/dev/null || true
           fi
           rm -rf $GITHUB_WORKSPACE/clang-prebuilt
 
@@ -52,47 +58,25 @@ jobs:
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
-      - name: Ultimate Hard Patching & Safe Environment Prep
+      - name: Ultimate Safe Code Patching & Env Setup
         run: |
           cd $GITHUB_WORKSPACE
           
+          # التجهيز للمترجم والروابط التوافقية
           mkdir -p $GITHUB_WORKSPACE/custom_bin
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld.lld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-gnu-ld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-gnu-ld.lld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-android-ld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld.lld
-          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/clang/bin/ld
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld.lld || true
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/ld || true
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-gnu-ld || true
+          cp /usr/bin/ld.lld $GITHUB_WORKSPACE/custom_bin/aarch64-linux-android-ld || true
 
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
 
-          # 1. ترويض مشكلة الـ Stack Pointer لـ Clang الحديث
-          if [ -f "arch/arm64/include/asm/stack_pointer.h" ]; then
-            sed -i 's/register unsigned long current_stack_pointer.*/#define current_stack_pointer 0UL/g' arch/arm64/include/asm/stack_pointer.h
-          fi
+          # التخلص من التواقيع والشهادات المسببة للمشاكل
+          if [ -f "scripts/sign-file.c" ]; then echo 'int main(void) { return 0; }' > scripts/sign-file.c; fi
+          if [ -f "scripts/extract-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/extract-cert.c; fi
+          if [ -f "scripts/insert-sys-cert.c" ]; then echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c; fi
 
-          # 2. ترقيع وإلغاء تعليمة brk المسببة للمشكلة داخل kgdb.h
-          if [ -f "arch/arm64/include/asm/kgdb.h" ]; then
-            sed -i 's/asm ("brk %0".*)/\/* bypassed *\//g' arch/arm64/include/asm/kgdb.h
-          fi
-
-          # 3. إيقاف بناء الـ vDSO المتعارض مع Clang الحديث في الـ Makefile الرئيسي لـ arm64
-          if [ -f "arch/arm64/Makefile" ]; then
-            sed -i 's/vdso_prepare//g' arch/arm64/Makefile
-            sed -i 's/vdso//g' arch/arm64/Makefile
-          fi
-
-          if [ -f "scripts/sign-file.c" ]; then
-            echo 'int main(void) { return 0; }' > scripts/sign-file.c
-          fi
-          if [ -f "scripts/extract-cert.c" ]; then
-            echo 'int main(void) { return 0; }' > scripts/extract-cert.c
-          fi
-          if [ -f "scripts/insert-sys-cert.c" ]; then
-            echo 'int main(void) { return 0; }' > scripts/insert-sys-cert.c
-          fi
-
+          # تنظيف ملف الكود الغريب لمعرفات الـ LED من نوبيا لضمان عدم توقف البناء
           if [ -f "drivers/leds/nubia_led/aw8695/Kconfig" ]; then
             tr -cd '\11\12\15\40-\176' < drivers/leds/nubia_led/aw8695/Kconfig > drivers/leds/nubia_led/aw8695/Kconfig.clean
             mv drivers/leds/nubia_led/aw8695/Kconfig.clean drivers/leds/nubia_led/aw8695/Kconfig
@@ -112,13 +96,11 @@ jobs:
             sed -i '/CONFIG_MODULE_SIG/d' $CONF_PATH
             sed -i '/CONFIG_KGDB/d' $CONF_PATH
             sed -i '/CONFIG_CRYPTO_DEV_QCOM_MSM_QCE/d' $CONF_PATH
-            sed -i '/CONFIG_VDSO/d' $CONF_PATH
             
             echo "CONFIG_ARM64_LSE_ATOMICS=n" >> $CONF_PATH
             echo "CONFIG_MODULE_SIG=n" >> $CONF_PATH
             echo "CONFIG_KGDB=n" >> $CONF_PATH
             echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> $CONF_PATH
-            echo "CONFIG_VDSO=n" >> $CONF_PATH
           fi
 
           mkdir -p out
@@ -126,14 +108,15 @@ jobs:
             cp $CONF_PATH out/.config
           fi
 
-      - name: Force Apply Defconfig Modifications & Final Clear Build
+      - name: Execute Defconfig Setup & Compliant Toolchain Build
         run: |
           cd $GITHUB_WORKSPACE
           if [ -d "msm-5.4" ]; then cd msm-5.4; fi
           
           export PATH=$GITHUB_WORKSPACE/custom_bin:$GITHUB_WORKSPACE/clang/bin:$PATH
           
-          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          # البناء باستخدام مترجم الـ Assembly التوافقي والتقليدي لـ GCC الخارجي لحل مشكلة الماكرو نهائياً
+          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
           sed -i '/CONFIG_KSU/d' out/.config
           sed -i '/CONFIG_ARM64_LSE_ATOMICS/d' out/.config
@@ -143,7 +126,6 @@ jobs:
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' out/.config
           sed -i '/CONFIG_KGDB/d' out/.config
           sed -i '/CONFIG_CRYPTO_DEV_QCOM_MSM_QCE/d' out/.config
-          sed -i '/CONFIG_VDSO/d' out/.config
           
           echo "CONFIG_KSU=y" >> out/.config
           echo "CONFIG_ARM64_LSE_ATOMICS=n" >> out/.config
@@ -153,12 +135,11 @@ jobs:
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> out/.config
           echo "CONFIG_KGDB=n" >> out/.config
           echo "CONFIG_CRYPTO_DEV_QCOM_MSM_QCE=n" >> out/.config
-          echo "CONFIG_VDSO=n" >> out/.config
 
-          make O=out olddefconfig ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out olddefconfig ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
-          # البناء بنمط النواة الواحدة والتقرير الشامل لضمان الثبات التام وتخطي الـ vDSO
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- -j1 V=1
+          # البناء المتوازي الفعلي والنهائي المستقر
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- -j$(nproc)
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
